@@ -15,9 +15,39 @@
   <div id="status">Status: Not connected</div>
 </div>
 
-<div id="ecgValue">ECG Value: --</div>
-<div id="timestamp">Timestamp: --</div>
-<canvas id="ecgChart" width="600" height="300"></canvas>
+<div class="data-container">
+  <div class="data-item">
+    <div class="data-label">ECG Value</div>
+    <div id="ecgValue" class="data-value">--</div>
+  </div>
+  <div class="data-item">
+    <div class="data-label">Heart Rate</div>
+    <div id="bpmValue" class="data-value">-- <span class="unit">BPM</span></div>
+  </div>
+  <div class="data-item">
+    <div class="data-label">Last Update</div>
+    <div id="timestamp" class="data-value">--:--:--</div>
+  </div>
+</div>
+
+<div class="chart-container">
+  <div class="chart-wrapper">
+    <h3>ECG Signal</h3>
+    <div class="chart-outer">
+      <div class="chart-inner">
+        <canvas id="ecgChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="chart-wrapper">
+    <h3>Heart Rate (Last 60s)</h3>
+    <div class="chart-outer">
+      <div class="chart-inner">
+        <canvas id="bpmChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Chart.js CDN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

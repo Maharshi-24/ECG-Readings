@@ -72,19 +72,24 @@ void setup() {
 void loop() {
   if (!client.connected()) {
     reconnect();
+    return; // Skip the rest of the loop if reconnecting
   }
+  
   client.loop();
 
   unsigned long currentMillis = millis();
   if (currentMillis - lastSendTime >= sendInterval) {
     lastSendTime = currentMillis;
 
+    // Check for lead-off condition
     if (digitalRead(LO_PLUS) == HIGH || digitalRead(LO_MINUS) == HIGH) {
-      Serial.println("Leads Off Detected!");
-      return; // Skip this iteration
+      String statusTopic = "iot/devices/" + String(device_id) + "/status";
+      client.publish(statusTopic.c_str(), "Leads Off!");
+      return;
     }
 
-    int ecg_value = analogRead(ECG_PIN);  // 0–4095
+    // Read ECG value (0-4095 for ESP32 ADC)
+    int ecg_value = analogRead(ECG_PIN);
     unsigned long timestamp = millis();
 
     // Create JSON payload
@@ -95,8 +100,18 @@ void loop() {
     payload += "}";
 
     String topic = "iot/devices/" + String(device_id);
-    client.publish(topic.c_str(), payload.c_str());
-
-    Serial.println(payload);  // Debug output
+    
+    // Publish the data
+    bool published = client.publish(topic.c_str(), payload.c_str());
+    
+    // Debug output
+    if (published) {
+      Serial.print("Published to ");
+      Serial.print(topic);
+      Serial.print(": ");
+      Serial.println(payload);
+    } else {
+      Serial.println("Publish failed!");
+    }
   }
 }
