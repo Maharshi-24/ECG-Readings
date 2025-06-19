@@ -1,0 +1,609 @@
+/* Reset and Base Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  color: #333;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Header */
+header {
+  text-align: center;
+  margin-bottom: 30px;
+  color: white;
+}
+
+header h1 {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.subtitle {
+  font-size: 1.1rem;
+  opacity: 0.9;
+  font-weight: 300;
+}
+
+/* Connection Section */
+.connection-section {
+  background: white;
+  border-radius: 15px;
+  padding: 25px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  text-align: center;
+}
+
+.input-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+.input-group label {
+  font-weight: 600;
+  color: #555;
+}
+
+#deviceIdInput {
+  padding: 12px 16px;
+  border: 2px solid #e1e5e9;
+  border-radius: 8px;
+  font-size: 16px;
+  min-width: 200px;
+  transition: all 0.3s ease;
+}
+
+#deviceIdInput:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Buttons */
+.btn-primary, .btn-secondary, .btn-small {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #5a6268;
+}
+
+.btn-small {
+  padding: 8px 16px;
+  font-size: 14px;
+  background: #f8f9fa;
+  color: #495057;
+  border: 1px solid #dee2e6;
+}
+
+.btn-small:hover {
+  background: #e9ecef;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.status {
+  color: #6c757d;
+  font-style: italic;
+  font-size: 14px;
+}
+
+/* Data Section */
+.data-section {
+  margin-bottom: 30px;
+}
+
+.data-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+}
+
+.data-card {
+  background: white;
+  border-radius: 15px;
+  padding: 25px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  transition: transform 0.3s ease;
+}
+
+.data-card:hover {
+  transform: translateY(-5px);
+}
+
+.data-label {
+  font-size: 14px;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+.data-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #2c3e50;
+  margin-bottom: 5px;
+  font-family: 'Courier New', monospace;
+}
+
+#bpmValue {
+  color: #e74c3c;
+}
+
+#ecgValue {
+  color: #3498db;
+}
+
+#signalQuality {
+  color: #27ae60;
+}
+
+.data-unit {
+  font-size: 14px;
+  color: #95a5a6;
+  font-weight: 500;
+}
+
+/* Charts Section */
+.charts-section {
+  margin-bottom: 30px;
+}
+
+.chart-container {
+  margin-bottom: 30px;
+}
+
+.chart-wrapper {
+  background: white;
+  border-radius: 15px;
+  padding: 25px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+}
+
+.chart-wrapper h3 {
+  margin-bottom: 20px;
+  color: #2c3e50;
+  font-size: 1.4rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chart-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.analysis-info {
+  font-size: 12px;
+  color: #6c757d;
+  font-style: italic;
+  margin-left: auto;
+}
+
+.chart-info {
+  display: flex;
+  gap: 15px;
+  margin-left: auto;
+  font-size: 11px;
+  color: #666;
+  font-weight: 500;
+}
+
+.sweep-speed, .amplitude-scale {
+  background: #f8f9fa;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+}
+
+.chart-area {
+  position: relative;
+  height: 400px;
+  margin-top: 15px;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Enhanced ECG Chart Styling */
+#ecgChart {
+  width: 100% !important;
+  height: 100% !important;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    transparent calc(20% - 1px),
+    #ffcccc 20%,
+    #ffcccc calc(20% + 1px),
+    transparent calc(20% + 1px),
+    transparent calc(40% - 1px),
+    #ffcccc 40%,
+    #ffcccc calc(40% + 1px),
+    transparent calc(40% + 1px),
+    transparent calc(60% - 1px),
+    #ffcccc 60%,
+    #ffcccc calc(60% + 1px),
+    transparent calc(60% + 1px),
+    transparent calc(80% - 1px),
+    #ffcccc 80%,
+    #ffcccc calc(80% + 1px),
+    transparent calc(80% + 1px),
+    transparent 100%
+  ),
+  linear-gradient(
+    to bottom,
+    transparent 0%,
+    transparent calc(20% - 1px),
+    #ffcccc 20%,
+    #ffcccc calc(20% + 1px),
+    transparent calc(20% + 1px),
+    transparent calc(40% - 1px),
+    #ffcccc 40%,
+    #ffcccc calc(40% + 1px),
+    transparent calc(40% + 1px),
+    transparent calc(60% - 1px),
+    #ffcccc 60%,
+    #ffcccc calc(60% + 1px),
+    transparent calc(60% + 1px),
+    transparent calc(80% - 1px),
+    #ffcccc 80%,
+    #ffcccc calc(80% + 1px),
+    transparent calc(80% + 1px),
+    transparent 100%
+  );
+  background-size: 5% 5%;
+}
+
+/* Medical ECG Paper Background */
+.chart-area.ecg-chart {
+  background:
+    /* Major grid lines every 5mm (0.5mV, 0.2s) */
+    linear-gradient(to right, #ff6b6b 0, #ff6b6b 1px, transparent 1px),
+    linear-gradient(to bottom, #ff6b6b 0, #ff6b6b 1px, transparent 1px),
+    /* Minor grid lines every 1mm (0.1mV, 0.04s) */
+    linear-gradient(to right, #ffcccc 0, #ffcccc 0.5px, transparent 0.5px),
+    linear-gradient(to bottom, #ffcccc 0, #ffcccc 0.5px, transparent 0.5px),
+    #fff;
+  background-size:
+    40px 40px,  /* Major grid */
+    40px 40px,  /* Major grid */
+    8px 8px,    /* Minor grid */
+    8px 8px,    /* Minor grid */
+    100% 100%;
+}
+
+#bpmChart, #beatChart {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ECG Intervals Section */
+.intervals-section {
+  margin-bottom: 30px;
+}
+
+.intervals-section h2 {
+  text-align: center;
+  color: white;
+  margin-bottom: 20px;
+  font-size: 1.8rem;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.intervals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.interval-card {
+  background: white;
+  border-radius: 15px;
+  padding: 25px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  transition: transform 0.3s ease;
+  border-left: 5px solid #3498db;
+}
+
+.interval-card:hover {
+  transform: translateY(-5px);
+}
+
+.pr-interval {
+  border-left-color: #9b59b6;
+}
+
+.qrs-interval {
+  border-left-color: #e74c3c;
+}
+
+.qt-interval {
+  border-left-color: #f39c12;
+}
+
+.qtc-interval {
+  border-left-color: #27ae60;
+}
+
+.interval-label {
+  font-size: 16px;
+  color: #2c3e50;
+  font-weight: 700;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.interval-value {
+  font-size: 2.8rem;
+  font-weight: 800;
+  color: #2c3e50;
+  margin-bottom: 8px;
+  font-family: 'Courier New', monospace;
+}
+
+.interval-unit {
+  font-size: 16px;
+  color: #7f8c8d;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.interval-status {
+  font-size: 12px;
+  color: #95a5a6;
+  font-style: italic;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+}
+
+.interval-status.normal {
+  color: #27ae60;
+  background: #d5f4e6;
+  border-color: #27ae60;
+}
+
+.interval-status.abnormal {
+  color: #e74c3c;
+  background: #fdeaea;
+  border-color: #e74c3c;
+}
+
+.interval-status.borderline {
+  color: #f39c12;
+  background: #fef9e7;
+  border-color: #f39c12;
+}
+
+/* ECG Morphology Section */
+.morphology-section {
+  margin-bottom: 30px;
+}
+
+.morphology-section h2 {
+  text-align: center;
+  color: white;
+  margin-bottom: 20px;
+  font-size: 1.8rem;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.morphology-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.wave-card {
+  background: white;
+  border-radius: 15px;
+  padding: 25px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  transition: transform 0.3s ease;
+  border-top: 4px solid #3498db;
+}
+
+.wave-card:hover {
+  transform: translateY(-3px);
+}
+
+.p-wave {
+  border-top-color: #8e44ad;
+}
+
+.qrs-wave {
+  border-top-color: #c0392b;
+}
+
+.t-wave {
+  border-top-color: #d68910;
+}
+
+.rhythm-analysis {
+  border-top-color: #138d75;
+}
+
+.wave-label {
+  font-size: 18px;
+  color: #2c3e50;
+  font-weight: 700;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.wave-status {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 15px;
+  text-align: center;
+  padding: 8px;
+  border-radius: 6px;
+  background: #f8f9fa;
+}
+
+.wave-status.detected {
+  color: #27ae60;
+  background: #d5f4e6;
+}
+
+.wave-status.not-detected {
+  color: #e74c3c;
+  background: #fdeaea;
+}
+
+.wave-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  color: #6c757d;
+}
+
+.wave-details span {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+/* Statistics Section */
+.stats-section {
+  margin-bottom: 30px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.stat-item {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+  backdrop-filter: blur(10px);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #2c3e50;
+  font-family: 'Courier New', monospace;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .container {
+    padding: 15px;
+  }
+  
+  header h1 {
+    font-size: 2rem;
+  }
+  
+  .input-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  #deviceIdInput {
+    min-width: auto;
+  }
+  
+  .data-value {
+    font-size: 2rem;
+  }
+  
+  .chart-area {
+    height: 250px;
+  }
+}
+
+/* Animation for data updates */
+.data-value {
+  transition: all 0.3s ease;
+}
+
+.data-value.updated {
+  transform: scale(1.05);
+  color: #27ae60;
+}
+
+/* Status indicators */
+.status.connected {
+  color: #27ae60;
+  font-weight: 600;
+}
+
+.status.error {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.status.connecting {
+  color: #f39c12;
+  font-weight: 600;
+}
