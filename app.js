@@ -482,7 +482,7 @@ class ECGMonitor {
     
     const options = {
       keepalive: 30,
-      clientId: 'webclient_' + Math.random().toString(16).substr(2, 8),
+      clientId: 'webclient_' + Math.random().toString(16).substring(2, 10),
       username: this.mqttConfig.username,
       password: this.mqttConfig.password,
       protocol: 'wss',
@@ -1106,7 +1106,7 @@ class ECGMonitor {
     this.analyzeTWave(values, timestamps, rPeakIndex, adcToMv);
   }
 
-  analyzePWave(values, timestamps, rPeakIndex, adcToMv) {
+  analyzePWave(values, _timestamps, rPeakIndex, adcToMv) {
     // Look for P wave in the region before QRS
     const pWaveStart = Math.max(0, rPeakIndex - 20); // -200ms
     const pWaveEnd = Math.max(0, rPeakIndex - 5);    // -50ms
@@ -1137,13 +1137,12 @@ class ECGMonitor {
     }
   }
 
-  analyzeQRSComplex(values, timestamps, rPeakIndex, adcToMv) {
+  analyzeQRSComplex(values, _timestamps, rPeakIndex, adcToMv) {
     // QRS complex analysis around R peak
     const qrsStart = Math.max(0, rPeakIndex - 5);  // -50ms
     const qrsEnd = Math.min(values.length - 1, rPeakIndex + 5); // +50ms
 
     const qrsRegion = values.slice(qrsStart, qrsEnd);
-    const baseline = (values[0] + values[values.length - 1]) / 2;
 
     const maxQRS = Math.max(...qrsRegion);
     const minQRS = Math.min(...qrsRegion);
@@ -1165,7 +1164,7 @@ class ECGMonitor {
     };
   }
 
-  analyzeTWave(values, timestamps, rPeakIndex, adcToMv) {
+  analyzeTWave(values, _timestamps, rPeakIndex, adcToMv) {
     // T wave analysis after QRS
     const tWaveStart = Math.min(values.length - 1, rPeakIndex + 10); // +100ms
     const tWaveEnd = Math.min(values.length - 1, rPeakIndex + 30);   // +300ms
@@ -1201,8 +1200,8 @@ class ECGMonitor {
     }
   }
 
-  calculateECGIntervals(beatData) {
-    const { values, timestamps, rPeakIndex } = beatData;
+  calculateECGIntervals(_beatData) {
+    // Note: In a real implementation, these would use actual signal analysis
 
     // Simulate interval calculations (in a real system, these would be more sophisticated)
 
