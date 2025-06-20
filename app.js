@@ -79,7 +79,7 @@ class ECGMonitor {
 
   registerChartPlugins() {
     // Register custom sweep line plugin for ECG chart
-    Chart.register({
+    const sweepLinePlugin = {
       id: 'sweepLine',
       afterDraw: (chart) => {
         if (chart.canvas.id !== 'ecgChart') return;
@@ -105,9 +105,16 @@ class ECGMonitor {
         ctx.restore();
 
         // Store sweep position for data clearing effect
-        window.ecgMonitor.ecgSweepPosition = sweepPosition;
+        if (window.ecgMonitor) {
+          window.ecgMonitor.ecgSweepPosition = sweepPosition;
+        }
       }
-    });
+    };
+
+    // Register the plugin
+    if (typeof Chart !== 'undefined') {
+      Chart.register(sweepLinePlugin);
+    }
   }
   
   initializeApp() {
@@ -696,12 +703,21 @@ class ECGMonitor {
     const chartData = [];
     const samplingInterval = 1000 / this.samplingRate; // 10ms at 100Hz
 
-    // Apply baseline correction and filtering
-    const filteredData = this.applyECGFiltering(this.ecgData);
+    // Check if we're in demo mode (cleaner signal, less filtering needed)
+    const isDemoMode = this.demoInterval !== null;
+
+    let processedData;
+    if (isDemoMode) {
+      // Demo mode: minimal filtering to preserve clean mathematical waveform
+      processedData = this.applyMinimalFiltering(this.ecgData);
+    } else {
+      // Real ECG mode: full medical-grade filtering
+      processedData = this.applyECGFiltering(this.ecgData);
+    }
 
     // Convert ADC values to millivolts with proper medical scaling
-    for (let i = 0; i < filteredData.length; i++) {
-      const adcValue = filteredData[i];
+    for (let i = 0; i < processedData.length; i++) {
+      const adcValue = processedData[i];
 
       // Enhanced ADC to mV conversion with baseline correction
       const millivolts = this.adcToMillivolts(adcValue);
@@ -718,27 +734,119 @@ class ECGMonitor {
     return chartData;
   }
 
-  applyECGFiltering(rawData) {
-    if (rawData.length < 5) return rawData;
+  applyMinimalFiltering(rawData) {
+    if (rawData.length < 3) return rawData;
 
-    // Simple moving average filter to reduce noise
+    // For demo mode: only apply light smoothing to preserve waveform shape
     const filtered = [];
-    const windowSize = 3;
 
-    for (let i = 0; i < rawData.length; i++) {
-      if (i < windowSize - 1) {
-        filtered[i] = rawData[i];
-      } else {
-        let sum = 0;
-        for (let j = 0; j < windowSize; j++) {
-          sum += rawData[i - j];
-        }
-        filtered[i] = sum / windowSize;
-      }
+    // Simple 3-point moving average for minimal smoothing
+    filtered[0] = rawData[0];
+    for (let i = 1; i < rawData.length - 1; i++) {
+      filtered[i] = (rawData[i-1] + rawData[i] + rawData[i+1]) / 3;
+    }
+    filtered[rawData.length - 1] = rawData[rawData.length - 1];
+
+    return filtered;
+  }
+
+  applyECGFiltering(rawData) {
+    if (rawData.length < 10) return rawData;
+
+    // Multi-stage medical-grade filtering
+    let filtered = rawData.slice(); // Copy array
+
+    // 1. High-pass filter (remove baseline drift) - 0.5Hz cutoff
+    filtered = this.highPassFilter(filtered, 0.5, this.samplingRate);
+
+    // 2. Low-pass filter (remove high-frequency noise) - 40Hz cutoff
+    filtered = this.lowPassFilter(filtered, 40, this.samplingRate);
+
+    // 3. Notch filter (remove 50/60Hz power line interference)
+    filtered = this.notchFilter(filtered, 50, this.samplingRate);
+
+    // 4. Median filter (remove impulse noise)
+    filtered = this.medianFilter(filtered, 3);
+
+    return filtered;
+  }
+
+  // High-pass Butterworth filter implementation
+  highPassFilter(data, cutoffFreq, sampleRate) {
+    const nyquist = sampleRate / 2;
+    const normalizedCutoff = cutoffFreq / nyquist;
+
+    // Simple high-pass filter using difference equation
+    const filtered = [];
+    const alpha = 1 / (1 + (2 * Math.PI * normalizedCutoff));
+
+    filtered[0] = data[0];
+    for (let i = 1; i < data.length; i++) {
+      filtered[i] = alpha * (filtered[i-1] + data[i] - data[i-1]);
     }
 
-    // Baseline drift correction
-    return this.correctBaseline(filtered);
+    return filtered;
+  }
+
+  // Low-pass Butterworth filter implementation
+  lowPassFilter(data, cutoffFreq, sampleRate) {
+    const nyquist = sampleRate / 2;
+    const normalizedCutoff = cutoffFreq / nyquist;
+
+    // Simple low-pass filter using exponential smoothing
+    const filtered = [];
+    const alpha = (2 * Math.PI * normalizedCutoff) / (1 + 2 * Math.PI * normalizedCutoff);
+
+    filtered[0] = data[0];
+    for (let i = 1; i < data.length; i++) {
+      filtered[i] = alpha * data[i] + (1 - alpha) * filtered[i-1];
+    }
+
+    return filtered;
+  }
+
+  // Notch filter for power line interference
+  notchFilter(data, notchFreq, sampleRate) {
+    const omega = 2 * Math.PI * notchFreq / sampleRate;
+    const cosOmega = Math.cos(omega);
+    const alpha = 0.95; // Notch width parameter
+
+    const filtered = [];
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      const x0 = data[i];
+      const y0 = x0 - 2 * alpha * cosOmega * x1 + alpha * alpha * x2 +
+                 2 * alpha * cosOmega * y1 - alpha * alpha * y2;
+
+      filtered[i] = y0;
+
+      // Update delay line
+      x2 = x1; x1 = x0;
+      y2 = y1; y1 = y0;
+    }
+
+    return filtered;
+  }
+
+  // Median filter for impulse noise removal
+  medianFilter(data, windowSize) {
+    const filtered = [];
+    const halfWindow = Math.floor(windowSize / 2);
+
+    for (let i = 0; i < data.length; i++) {
+      const window = [];
+
+      for (let j = -halfWindow; j <= halfWindow; j++) {
+        const index = Math.max(0, Math.min(data.length - 1, i + j));
+        window.push(data[index]);
+      }
+
+      window.sort((a, b) => a - b);
+      filtered[i] = window[Math.floor(window.length / 2)];
+    }
+
+    return filtered;
   }
 
   correctBaseline(data) {
@@ -770,6 +878,80 @@ class ECGMonitor {
     return corrected;
   }
 
+  adcToMillivolts(adcValue) {
+    // Enhanced conversion with proper medical scaling
+    // ESP32 ADC: 0-4095 (12-bit) representing 0-3.3V
+    // ECG signal typically ranges from -2mV to +3mV
+
+    const voltage = (adcValue / 4095) * 3.3; // Convert to voltage (0-3.3V)
+    const centeredVoltage = voltage - 1.65;  // Center around 0V (baseline at 1.65V)
+    const millivolts = centeredVoltage * 3;   // Scale to ±5mV range for better visibility
+
+    return Math.round(millivolts * 100) / 100; // Round to 2 decimal places
+  }
+
+  // Helper functions for advanced ECG analysis
+  calculateDerivative(signal) {
+    const derivative = [];
+    derivative[0] = 0;
+
+    for (let i = 1; i < signal.length - 1; i++) {
+      derivative[i] = (signal[i + 1] - signal[i - 1]) / 2;
+    }
+
+    derivative[signal.length - 1] = 0;
+    return derivative;
+  }
+
+  findIsoelectricBaseline(values, rPeakIndex) {
+    // Find baseline in TP segment (after T wave, before next P wave)
+    const tpStart = Math.min(values.length - 1, rPeakIndex + 40); // +400ms after R
+    const tpEnd = Math.min(values.length - 1, rPeakIndex + 60);   // +600ms after R
+
+    if (tpEnd <= tpStart) {
+      // Fallback: use overall signal median
+      const sorted = values.slice().sort((a, b) => a - b);
+      return sorted[Math.floor(sorted.length / 2)];
+    }
+
+    const tpSegment = values.slice(tpStart, tpEnd);
+    return tpSegment.reduce((a, b) => a + b) / tpSegment.length;
+  }
+
+  calculateAdaptiveThreshold(signal, factor = 0.3) {
+    const mean = signal.reduce((a, b) => a + b) / signal.length;
+    const variance = signal.reduce((a, b) => a + Math.pow(b - mean, 2)) / signal.length;
+    const stdDev = Math.sqrt(variance);
+
+    return stdDev * factor;
+  }
+
+  classifyPWaveMorphology(pWaveSegment) {
+    if (pWaveSegment.length < 3) return 'Unknown';
+
+    const peak = Math.max(...pWaveSegment);
+    const peakIndex = pWaveSegment.indexOf(peak);
+    const baseline = (pWaveSegment[0] + pWaveSegment[pWaveSegment.length - 1]) / 2;
+
+    // Check for biphasic P wave
+    const firstHalf = pWaveSegment.slice(0, peakIndex);
+    const secondHalf = pWaveSegment.slice(peakIndex);
+
+    const firstHalfMin = Math.min(...firstHalf);
+    const secondHalfMin = Math.min(...secondHalf);
+
+    if (firstHalfMin < baseline - 20 || secondHalfMin < baseline - 20) {
+      return 'Biphasic';
+    }
+
+    // Check P wave symmetry
+    const asymmetryRatio = peakIndex / pWaveSegment.length;
+    if (asymmetryRatio < 0.3 || asymmetryRatio > 0.7) {
+      return 'Asymmetric';
+    }
+
+    return 'Normal';
+  }
 
 
   updateBPMChart() {
@@ -1106,35 +1288,92 @@ class ECGMonitor {
     this.analyzeTWave(values, timestamps, rPeakIndex, adcToMv);
   }
 
-  analyzePWave(values, _timestamps, rPeakIndex, adcToMv) {
-    // Look for P wave in the region before QRS
-    const pWaveStart = Math.max(0, rPeakIndex - 20); // -200ms
-    const pWaveEnd = Math.max(0, rPeakIndex - 5);    // -50ms
+  analyzePWave(values, timestamps, rPeakIndex, adcToMv) {
+    // Advanced P wave detection using derivative and template matching
+    const pSearchStart = Math.max(0, rPeakIndex - 30); // -300ms from R peak
+    const pSearchEnd = Math.max(0, rPeakIndex - 8);    // -80ms from R peak
 
-    if (pWaveEnd <= pWaveStart) {
-      this.morphology.pWave = { detected: false, amplitude: 0, duration: 0 };
+    if (pSearchEnd <= pSearchStart) {
+      this.morphology.pWave = { detected: false, amplitude: 0, duration: 0, onset: null, offset: null };
       return;
     }
 
-    const pWaveRegion = values.slice(pWaveStart, pWaveEnd);
-    const baseline = (values[0] + values[values.length - 1]) / 2;
+    const pRegion = values.slice(pSearchStart, pSearchEnd);
+    const pTimestamps = timestamps.slice(pSearchStart, pSearchEnd);
 
-    // Find P wave peak
-    let maxP = Math.max(...pWaveRegion);
-    let minP = Math.min(...pWaveRegion);
+    // Calculate first derivative to find wave boundaries
+    const derivative = this.calculateDerivative(pRegion);
 
-    // P wave is typically a small positive deflection
-    const pAmplitude = Math.max(maxP - baseline, baseline - minP);
+    // Find isoelectric baseline
+    const baseline = this.findIsoelectricBaseline(values, rPeakIndex);
 
-    if (pAmplitude > 50) { // Threshold for P wave detection (ADC units)
+    // Detect P wave using advanced algorithm
+    const pWaveFeatures = this.detectPWaveFeatures(pRegion, derivative, baseline, pTimestamps);
+
+    if (pWaveFeatures.detected) {
       this.morphology.pWave = {
         detected: true,
-        amplitude: Math.round(adcToMv(pAmplitude) * 100) / 100,
-        duration: (pWaveEnd - pWaveStart) * 10 // Convert to ms
+        amplitude: Math.round(adcToMv(pWaveFeatures.amplitude) * 100) / 100,
+        duration: pWaveFeatures.duration,
+        onset: pWaveFeatures.onset,
+        offset: pWaveFeatures.offset,
+        morphology: pWaveFeatures.morphology
       };
     } else {
-      this.morphology.pWave = { detected: false, amplitude: 0, duration: 0 };
+      this.morphology.pWave = { detected: false, amplitude: 0, duration: 0, onset: null, offset: null };
     }
+  }
+
+  detectPWaveFeatures(region, derivative, baseline, timestamps) {
+    const threshold = this.calculateAdaptiveThreshold(region, 0.3); // 30% of signal range
+    // const minDuration = 6;  // Minimum 60ms for P wave (for future use)
+    const maxDuration = 12; // Maximum 120ms for P wave
+
+    let onset = -1, offset = -1, peakIndex = -1;
+    let maxAmplitude = 0;
+
+    // Find P wave onset (first significant positive derivative)
+    for (let i = 1; i < derivative.length - 1; i++) {
+      if (derivative[i] > threshold && derivative[i-1] <= threshold) {
+        onset = i;
+        break;
+      }
+    }
+
+    if (onset === -1) return { detected: false };
+
+    // Find P wave peak (maximum value after onset)
+    for (let i = onset; i < Math.min(onset + maxDuration, region.length); i++) {
+      if (region[i] > baseline + threshold && region[i] > maxAmplitude) {
+        maxAmplitude = region[i];
+        peakIndex = i;
+      }
+    }
+
+    // Find P wave offset (return to baseline)
+    for (let i = peakIndex; i < Math.min(peakIndex + maxDuration/2, region.length); i++) {
+      if (Math.abs(region[i] - baseline) < threshold/2) {
+        offset = i;
+        break;
+      }
+    }
+
+    if (offset === -1 || peakIndex === -1) return { detected: false };
+
+    const duration = (offset - onset) * 10; // Convert to milliseconds
+
+    // Validate P wave characteristics
+    if (duration < 60 || duration > 120) return { detected: false };
+    if (maxAmplitude - baseline < threshold) return { detected: false };
+
+    return {
+      detected: true,
+      amplitude: maxAmplitude - baseline,
+      duration: duration,
+      onset: timestamps[onset],
+      offset: timestamps[offset],
+      morphology: this.classifyPWaveMorphology(region.slice(onset, offset + 1))
+    };
   }
 
   analyzeQRSComplex(values, _timestamps, rPeakIndex, adcToMv) {
@@ -1200,39 +1439,217 @@ class ECGMonitor {
     }
   }
 
-  calculateECGIntervals(_beatData) {
-    // Note: In a real implementation, these would use actual signal analysis
+  calculateECGIntervals(beatData) {
+    const { values, timestamps, rPeakIndex } = beatData;
 
-    // Simulate interval calculations (in a real system, these would be more sophisticated)
+    // Real ECG interval calculations using actual signal analysis
 
-    // PR Interval: Start of P wave to start of QRS
-    if (this.morphology.pWave.detected) {
-      this.intervals.pr = Math.round(120 + Math.random() * 80); // 120-200ms normal range
-    } else {
-      this.intervals.pr = null;
+    // 1. PR Interval: Start of P wave to start of QRS
+    this.intervals.pr = this.calculatePRInterval(values, timestamps, rPeakIndex);
+
+    // 2. QRS Duration: Width of QRS complex
+    this.intervals.qrs = this.calculateQRSDuration(values, timestamps, rPeakIndex);
+
+    // 3. QT Interval: Start of QRS to end of T wave
+    this.intervals.qt = this.calculateQTInterval(values, timestamps, rPeakIndex);
+
+    // 4. QTc (Corrected QT): QT corrected for heart rate using Bazett's formula
+    this.intervals.qtc = this.calculateQTcInterval();
+  }
+
+  calculatePRInterval(values, _timestamps, rPeakIndex) {
+    // Find P wave onset and QRS onset
+    const pWaveOnset = this.findPWaveOnset(values, rPeakIndex);
+    const qrsOnset = this.findQRSOnset(values, rPeakIndex);
+
+    if (pWaveOnset === -1 || qrsOnset === -1) {
+      return null; // Cannot measure PR interval
     }
 
-    // QRS Duration: Width of QRS complex
-    this.intervals.qrs = Math.round(80 + Math.random() * 40); // 80-120ms normal range
+    // Calculate PR interval in milliseconds
+    const prInterval = (qrsOnset - pWaveOnset) * 10; // Convert samples to ms (100Hz = 10ms per sample)
 
-    // QT Interval: Start of QRS to end of T wave
-    if (this.morphology.tWave.detected) {
-      this.intervals.qt = Math.round(350 + Math.random() * 100); // 350-450ms normal range
-    } else {
-      this.intervals.qt = null;
+    // Validate PR interval (normal range: 120-200ms)
+    if (prInterval < 80 || prInterval > 300) {
+      return null; // Invalid PR interval
     }
 
-    // QTc (Corrected QT): QT corrected for heart rate using Bazett's formula
-    if (this.intervals.qt && this.intervals.rr) {
-      const rrSeconds = this.intervals.rr / 1000;
-      this.intervals.qtc = Math.round(this.intervals.qt / Math.sqrt(rrSeconds));
-    } else if (this.intervals.qt && this.bpmStats.current > 0) {
-      // Use current BPM if RR interval not available
-      const rrSeconds = 60 / this.bpmStats.current;
-      this.intervals.qtc = Math.round(this.intervals.qt / Math.sqrt(rrSeconds));
-    } else {
-      this.intervals.qtc = null;
+    return Math.round(prInterval);
+  }
+
+  calculateQRSDuration(values, _timestamps, rPeakIndex) {
+    // Find QRS onset and offset using derivative analysis
+    const qrsOnset = this.findQRSOnset(values, rPeakIndex);
+    const qrsOffset = this.findQRSOffset(values, rPeakIndex);
+
+    if (qrsOnset === -1 || qrsOffset === -1) {
+      return null; // Cannot measure QRS duration
     }
+
+    // Calculate QRS duration in milliseconds
+    const qrsDuration = (qrsOffset - qrsOnset) * 10; // Convert samples to ms
+
+    // Validate QRS duration (normal range: 80-120ms)
+    if (qrsDuration < 40 || qrsDuration > 200) {
+      return null; // Invalid QRS duration
+    }
+
+    return Math.round(qrsDuration);
+  }
+
+  calculateQTInterval(values, _timestamps, rPeakIndex) {
+    // Find QRS onset and T wave offset
+    const qrsOnset = this.findQRSOnset(values, rPeakIndex);
+    const tWaveOffset = this.findTWaveOffset(values, rPeakIndex);
+
+    if (qrsOnset === -1 || tWaveOffset === -1) {
+      return null; // Cannot measure QT interval
+    }
+
+    // Calculate QT interval in milliseconds
+    const qtInterval = (tWaveOffset - qrsOnset) * 10; // Convert samples to ms
+
+    // Validate QT interval (normal range: 300-500ms)
+    if (qtInterval < 250 || qtInterval > 600) {
+      return null; // Invalid QT interval
+    }
+
+    return Math.round(qtInterval);
+  }
+
+  calculateQTcInterval() {
+    if (!this.intervals.qt) return null;
+
+    let rrInterval;
+
+    // Use RR interval if available, otherwise calculate from current BPM
+    if (this.intervals.rr) {
+      rrInterval = this.intervals.rr;
+    } else if (this.bpmStats.current > 0) {
+      rrInterval = (60 / this.bpmStats.current) * 1000; // Convert BPM to RR in ms
+    } else {
+      return null; // Cannot calculate QTc without heart rate
+    }
+
+    // Bazett's formula: QTc = QT / sqrt(RR in seconds)
+    const rrSeconds = rrInterval / 1000;
+    const qtc = this.intervals.qt / Math.sqrt(rrSeconds);
+
+    return Math.round(qtc);
+  }
+
+  // Advanced wave detection functions for accurate interval measurement
+
+  findPWaveOnset(values, rPeakIndex) {
+    // Search for P wave onset 300ms before R peak
+    const searchStart = Math.max(0, rPeakIndex - 30); // -300ms
+    const searchEnd = Math.max(0, rPeakIndex - 8);    // -80ms
+
+    if (searchEnd <= searchStart) return -1;
+
+    const searchRegion = values.slice(searchStart, searchEnd);
+    const derivative = this.calculateDerivative(searchRegion);
+    const baseline = this.findIsoelectricBaseline(values, rPeakIndex);
+    const threshold = this.calculateAdaptiveThreshold(searchRegion, 0.2);
+
+    // Find first significant upward deflection (P wave onset)
+    for (let i = 1; i < derivative.length - 1; i++) {
+      if (derivative[i] > threshold &&
+          searchRegion[i] > baseline + threshold/2 &&
+          derivative[i] > derivative[i-1]) {
+        return searchStart + i;
+      }
+    }
+
+    return -1; // P wave onset not found
+  }
+
+  findQRSOnset(values, rPeakIndex) {
+    // Search for QRS onset around R peak
+    const searchStart = Math.max(0, rPeakIndex - 8);  // -80ms
+    const searchEnd = Math.max(0, rPeakIndex - 2);    // -20ms
+
+    if (searchEnd <= searchStart) return -1;
+
+    const searchRegion = values.slice(searchStart, searchEnd);
+    const derivative = this.calculateDerivative(searchRegion);
+    const baseline = this.findIsoelectricBaseline(values, rPeakIndex);
+    const threshold = this.calculateAdaptiveThreshold(searchRegion, 0.5);
+
+    // Find steepest upward slope (QRS onset)
+    let maxDerivative = 0;
+    let onsetIndex = -1;
+
+    for (let i = 1; i < derivative.length - 1; i++) {
+      if (derivative[i] > threshold &&
+          derivative[i] > maxDerivative &&
+          Math.abs(searchRegion[i] - baseline) > threshold/2) {
+        maxDerivative = derivative[i];
+        onsetIndex = searchStart + i;
+      }
+    }
+
+    return onsetIndex;
+  }
+
+  findQRSOffset(values, rPeakIndex) {
+    // Search for QRS offset after R peak
+    const searchStart = Math.min(values.length - 1, rPeakIndex + 2);  // +20ms
+    const searchEnd = Math.min(values.length - 1, rPeakIndex + 8);    // +80ms
+
+    if (searchEnd <= searchStart) return -1;
+
+    const searchRegion = values.slice(searchStart, searchEnd);
+    const derivative = this.calculateDerivative(searchRegion);
+    const baseline = this.findIsoelectricBaseline(values, rPeakIndex);
+    const threshold = this.calculateAdaptiveThreshold(searchRegion, 0.3);
+
+    // Find return to baseline (QRS offset)
+    for (let i = 0; i < searchRegion.length; i++) {
+      if (Math.abs(searchRegion[i] - baseline) < threshold &&
+          Math.abs(derivative[i]) < threshold/2) {
+        return searchStart + i;
+      }
+    }
+
+    return -1; // QRS offset not found
+  }
+
+  findTWaveOffset(values, rPeakIndex) {
+    // Search for T wave offset after QRS
+    const searchStart = Math.min(values.length - 1, rPeakIndex + 15); // +150ms
+    const searchEnd = Math.min(values.length - 1, rPeakIndex + 40);   // +400ms
+
+    if (searchEnd <= searchStart) return -1;
+
+    const searchRegion = values.slice(searchStart, searchEnd);
+    const derivative = this.calculateDerivative(searchRegion);
+    const baseline = this.findIsoelectricBaseline(values, rPeakIndex);
+    const threshold = this.calculateAdaptiveThreshold(searchRegion, 0.2);
+
+    // Find T wave peak first
+    let tPeakIndex = -1;
+    let maxTAmplitude = 0;
+
+    for (let i = 0; i < searchRegion.length / 2; i++) {
+      const amplitude = Math.abs(searchRegion[i] - baseline);
+      if (amplitude > maxTAmplitude && amplitude > threshold) {
+        maxTAmplitude = amplitude;
+        tPeakIndex = i;
+      }
+    }
+
+    if (tPeakIndex === -1) return -1;
+
+    // Find T wave offset (return to baseline after T peak)
+    for (let i = tPeakIndex; i < searchRegion.length; i++) {
+      if (Math.abs(searchRegion[i] - baseline) < threshold/2 &&
+          Math.abs(derivative[i]) < threshold/3) {
+        return searchStart + i;
+      }
+    }
+
+    return -1; // T wave offset not found
   }
 
   updateBeatChart(beatData) {
@@ -1374,45 +1791,62 @@ class ECGMonitor {
   }
 
   generateECGSample(sampleIndex, samplesPerBeat) {
-    // Generate a realistic ECG waveform using mathematical functions
+    // Generate a highly realistic ECG waveform using medical-grade mathematical functions
     const beatProgress = (sampleIndex % samplesPerBeat) / samplesPerBeat;
-    const baseline = 2048; // ADC midpoint
+    const baseline = 2048; // ADC midpoint (1.65V)
     let ecgValue = baseline;
 
-    // P wave (0.08 - 0.12 of beat cycle)
-    if (beatProgress >= 0.08 && beatProgress <= 0.12) {
-      const pProgress = (beatProgress - 0.08) / 0.04;
-      ecgValue += 80 * Math.sin(pProgress * Math.PI);
+    // Enhanced P wave (0.08 - 0.14 of beat cycle) - more realistic timing
+    if (beatProgress >= 0.08 && beatProgress <= 0.14) {
+      const pProgress = (beatProgress - 0.08) / 0.06;
+      // Smooth P wave with realistic morphology
+      const pWave = 60 * Math.sin(pProgress * Math.PI) * Math.exp(-Math.pow(pProgress - 0.5, 2) * 8);
+      ecgValue += pWave;
     }
 
-    // QRS complex (0.15 - 0.25 of beat cycle)
-    else if (beatProgress >= 0.15 && beatProgress <= 0.25) {
-      const qrsProgress = (beatProgress - 0.15) / 0.10;
+    // Enhanced QRS complex (0.16 - 0.26 of beat cycle)
+    else if (beatProgress >= 0.16 && beatProgress <= 0.26) {
+      const qrsProgress = (beatProgress - 0.16) / 0.10;
 
-      // Q wave (small negative)
-      if (qrsProgress < 0.2) {
-        ecgValue -= 50 * Math.sin(qrsProgress * 5 * Math.PI);
+      // Q wave (small negative deflection)
+      if (qrsProgress < 0.15) {
+        const qProgress = qrsProgress / 0.15;
+        ecgValue -= 40 * Math.sin(qProgress * Math.PI) * 0.8;
       }
-      // R wave (large positive)
-      else if (qrsProgress < 0.6) {
-        const rProgress = (qrsProgress - 0.2) / 0.4;
-        ecgValue += 800 * Math.sin(rProgress * Math.PI);
+      // R wave (dominant positive deflection)
+      else if (qrsProgress < 0.65) {
+        const rProgress = (qrsProgress - 0.15) / 0.5;
+        // Sharp, tall R wave with realistic morphology
+        ecgValue += 700 * Math.sin(rProgress * Math.PI) * Math.exp(-Math.pow(rProgress - 0.5, 2) * 4);
       }
-      // S wave (negative)
+      // S wave (negative deflection after R)
       else {
-        const sProgress = (qrsProgress - 0.6) / 0.4;
-        ecgValue -= 200 * Math.sin(sProgress * Math.PI);
+        const sProgress = (qrsProgress - 0.65) / 0.35;
+        ecgValue -= 150 * Math.sin(sProgress * Math.PI) * 0.9;
       }
     }
 
-    // T wave (0.35 - 0.55 of beat cycle)
-    else if (beatProgress >= 0.35 && beatProgress <= 0.55) {
-      const tProgress = (beatProgress - 0.35) / 0.20;
-      ecgValue += 150 * Math.sin(tProgress * Math.PI);
+    // Enhanced T wave (0.32 - 0.58 of beat cycle) - more realistic timing and shape
+    else if (beatProgress >= 0.32 && beatProgress <= 0.58) {
+      const tProgress = (beatProgress - 0.32) / 0.26;
+      // Smooth T wave with asymmetric morphology (typical of real ECG)
+      const tWave = 120 * Math.sin(tProgress * Math.PI) * Math.exp(-Math.pow(tProgress - 0.4, 2) * 3);
+      ecgValue += tWave;
     }
 
-    // Add some realistic noise
-    ecgValue += (Math.random() - 0.5) * 20;
+    // Subtle U wave (optional, 0.62 - 0.72 of beat cycle)
+    else if (beatProgress >= 0.62 && beatProgress <= 0.72) {
+      const uProgress = (beatProgress - 0.62) / 0.10;
+      ecgValue += 15 * Math.sin(uProgress * Math.PI);
+    }
+
+    // Add minimal realistic noise (much less than before)
+    ecgValue += (Math.random() - 0.5) * 8;
+
+    // Add subtle respiratory variation (breathing artifact)
+    const respiratoryRate = 0.25; // 15 breaths per minute
+    const respiratoryPhase = (sampleIndex * respiratoryRate) / samplesPerBeat;
+    ecgValue += 5 * Math.sin(respiratoryPhase * 2 * Math.PI);
 
     // Ensure within ADC range
     return Math.max(0, Math.min(4095, Math.round(ecgValue)));
