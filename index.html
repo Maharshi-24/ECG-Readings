@@ -23,7 +23,7 @@
     <section class="connection-section">
       <div class="input-group">
         <label for="deviceIdInput">Device ID:</label>
-        <input type="text" id="deviceIdInput" placeholder="Enter device ID (e.g. P3)" value="P3">
+        <input type="text" id="deviceIdInput" placeholder="Enter device ID (e.g. P3)" value="">
         <button id="connectBtn" class="btn-primary">Connect</button>
         <button id="disconnectBtn" class="btn-secondary" disabled>Disconnect</button>
         <button id="debugToggleBtn" class="btn-small">Debug</button>
@@ -196,6 +196,9 @@
       </div>
     </section>
   </div>
+
+  <!-- Notification System -->
+  <div id="notificationContainer" class="notification-container"></div>
 
   <!-- Real-time Report Modal -->
   <div id="realtimeReportModal" class="modal" style="display: none;">

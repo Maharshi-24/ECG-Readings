@@ -47,7 +47,7 @@ class ECGMonitor {
     // ECG Analysis variables
     this.samplingRate = 100; // Hz (from ESP32)
     this.ecgAnalysisBuffer = [];
-    this.maxAnalysisBuffer = 500; // 5 seconds
+    this.maxAnalysisBuffer = 1000; // 10 seconds for analysis
     this.lastBeatAnalysis = null;
     this.beatDetectionBuffer = [];
 
@@ -557,7 +557,7 @@ class ECGMonitor {
   connect() {
     const deviceId = this.elements.deviceIdInput.value.trim();
     if (!deviceId) {
-      alert('Please enter a device ID');
+      this.showAlert('Please enter a device ID to connect to your ECG device', 'warning');
       return;
     }
     
@@ -1297,10 +1297,66 @@ class ECGMonitor {
     }
   }
 
+  // Notification System
+  showNotification(title, message, type = 'info', duration = 5000) {
+    const container = document.getElementById('notificationContainer');
+    if (!container) return;
+
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+
+    notification.innerHTML = `
+      <button class="notification-close">&times;</button>
+      <div class="notification-title">${title}</div>
+      <div class="notification-message">${message}</div>
+    `;
+
+    // Add close functionality
+    const closeBtn = notification.querySelector('.notification-close');
+    closeBtn.addEventListener('click', () => {
+      this.removeNotification(notification);
+    });
+
+    // Auto-remove after duration
+    setTimeout(() => {
+      this.removeNotification(notification);
+    }, duration);
+
+    // Click to dismiss
+    notification.addEventListener('click', () => {
+      this.removeNotification(notification);
+    });
+
+    container.appendChild(notification);
+  }
+
+  removeNotification(notification) {
+    if (notification && notification.parentNode) {
+      notification.style.animation = 'slideOut 0.3s ease-out';
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+      }, 300);
+    }
+  }
+
+  // Enhanced alert replacement
+  showAlert(message, type = 'info') {
+    const titles = {
+      success: 'Success',
+      warning: 'Warning',
+      error: 'Error',
+      info: 'Information'
+    };
+
+    this.showNotification(titles[type], message, type, type === 'error' ? 8000 : 5000);
+  }
+
   testConnection() {
     const deviceId = this.elements.deviceIdInput.value.trim();
     if (!deviceId) {
-      alert('Please enter a device ID first');
+      this.showAlert('Please enter a device ID first to test the connection', 'warning');
       return;
     }
 
@@ -1459,17 +1515,30 @@ class ECGMonitor {
   }
 
   analyzeBeat() {
-    if (this.ecgAnalysisBuffer.length < 1000) {
-      alert('Insufficient data for beat analysis. Please wait for 10 seconds of ECG data.');
+    // Check if we have enough data for meaningful analysis
+    const minRequiredPoints = Math.min(500, this.ecgAnalysisBuffer.length); // At least 5 seconds or whatever we have
+
+    if (this.ecgAnalysisBuffer.length < 200) {
+      this.showAlert('Insufficient data for beat analysis. Please wait for at least 2 seconds of ECG data.', 'warning');
       return;
     }
 
-    // Get the most recent 10 seconds of data for analysis
-    const analysisData = this.ecgAnalysisBuffer.slice(-1000);
+    // Check if we have been collecting data continuously
+    if (this.continuousDataDuration < 2000) {
+      const remainingTime = Math.ceil((2000 - this.continuousDataDuration) / 1000);
+      this.showAlert(`Please wait ${remainingTime} more seconds for stable ECG data collection.`, 'warning');
+      return;
+    }
+
+    // Get the available data for analysis (prefer 10 seconds, but work with what we have)
+    const analysisData = this.ecgAnalysisBuffer.length >= 1000 ?
+      this.ecgAnalysisBuffer.slice(-1000) :
+      this.ecgAnalysisBuffer.slice(-minRequiredPoints);
+
     const beatData = this.extractSingleBeat(analysisData);
 
     if (!beatData) {
-      alert('No clear beat detected in recent data. Please ensure good electrode contact.');
+      this.showAlert('No clear heartbeat detected in recent data. Please ensure good electrode contact and stable signal.', 'warning');
       return;
     }
 
@@ -1478,6 +1547,10 @@ class ECGMonitor {
     this.calculateECGIntervals(beatData);
     this.updateBeatChart(beatData);
     this.updateAnalysisDisplay();
+
+    // Show success message
+    const dataSeconds = Math.floor(analysisData.length / 100);
+    this.showAlert(`Beat analysis completed successfully using ${dataSeconds} seconds of ECG data. Check the analysis panel for detailed results.`, 'success');
   }
 
   extractSingleBeat(data) {
@@ -2094,14 +2167,14 @@ class ECGMonitor {
     const timeSinceLastData = Date.now() - this.lastDataReceived;
 
     if (!this.isConnected || timeSinceLastData > 10000) {
-      alert('Cannot generate report: No ECG data received in the last 10 seconds. Please ensure device is connected and sending data.');
+      this.showAlert('Cannot generate report: No ECG data received in the last 10 seconds. Please ensure device is connected and sending data.', 'error');
       return;
     }
 
     // Check if we have been collecting data continuously for at least 10 seconds
     if (this.continuousDataDuration < 10000) {
       const remainingTime = Math.ceil((10000 - this.continuousDataDuration) / 1000);
-      alert(`Cannot generate report: Need ${remainingTime} more seconds of continuous ECG data. Please wait for the system to collect a full 10-second window.`);
+      this.showAlert(`Cannot generate report: Need ${remainingTime} more seconds of continuous ECG data. Please wait for the system to collect a full 10-second window.`, 'warning');
       return;
     }
 
@@ -2131,7 +2204,7 @@ class ECGMonitor {
     const patientGender = document.getElementById('reportPatientGender').value;
 
     if (!patientName) {
-      alert('Please enter patient name');
+      this.showAlert('Please enter patient name to generate the report', 'warning');
       return;
     }
 
@@ -2142,6 +2215,9 @@ class ECGMonitor {
     // Generate report content
     const reportContent = await this.createRealtimeReportContent(patientName, patientAge, patientGender);
     document.getElementById('reportContent').innerHTML = reportContent;
+
+    // Show success message
+    this.showAlert(`ECG analysis report for ${patientName} has been generated successfully! You can now download it as PDF or print it.`, 'success');
   }
 
   async createRealtimeReportContent(patientName, patientAge, patientGender) {
@@ -2155,86 +2231,258 @@ class ECGMonitor {
     const bpmScreenshot = await this.captureBPMChart();
 
     return `
-      <div class="realtime-report">
-        <div class="report-header">
-          <h3>Real-Time ECG Analysis Report</h3>
-          <div class="report-info">
-            <div class="patient-info">
-              <h4>Patient Information</h4>
-              <p><strong>Name:</strong> ${patientName}</p>
-              <p><strong>Age:</strong> ${patientAge || 'Not specified'}</p>
-              <p><strong>Gender:</strong> ${patientGender || 'Not specified'}</p>
+      <div class="medical-report">
+        <!-- Medical Report Header -->
+        <div class="medical-header">
+          <div class="header-top">
+            <div class="facility-info">
+              <h1>ELECTROCARDIOGRAM</h1>
+              <div class="facility-name">ECG Monitoring System</div>
+              <div class="facility-address">Real-Time Cardiac Analysis</div>
             </div>
-            <div class="session-info">
-              <h4>Recording Session</h4>
-              <p><strong>Date:</strong> ${currentTime.toLocaleDateString()}</p>
-              <p><strong>Time:</strong> ${currentTime.toLocaleTimeString()}</p>
-              <p><strong>Device:</strong> ${this.isConnected ? 'Connected' : 'Demo Mode'}</p>
+            <div class="report-info">
+              <div class="report-id">Report ID: ECG-${Date.now().toString().slice(-8)}</div>
+              <div class="report-date">${currentTime.toLocaleDateString()}</div>
+              <div class="report-time">${currentTime.toLocaleTimeString()}</div>
             </div>
           </div>
         </div>
 
-        <div class="vital-signs">
-          <h4>10-Second Analysis Window</h4>
-          <div class="vitals-grid">
-            <div class="vital-item">
-              <span class="vital-label">Heart Rate (10s avg):</span>
-              <span class="vital-value">${tenSecondStats.heartRate || '--'} BPM</span>
+        <!-- Patient Information Section -->
+        <div class="patient-section">
+          <div class="section-header">PATIENT INFORMATION</div>
+          <div class="patient-grid">
+            <div class="patient-field">
+              <span class="field-label">Name:</span>
+              <span class="field-value">${patientName}</span>
             </div>
-            <div class="vital-item">
-              <span class="vital-label">Data Points:</span>
-              <span class="vital-value">${tenSecondStats.dataPoints}</span>
+            <div class="patient-field">
+              <span class="field-label">Age:</span>
+              <span class="field-value">${patientAge || 'Not specified'}</span>
             </div>
-            <div class="vital-item">
-              <span class="vital-label">R Peaks Detected:</span>
-              <span class="vital-value">${tenSecondStats.rPeakCount || '--'}</span>
+            <div class="patient-field">
+              <span class="field-label">Gender:</span>
+              <span class="field-value">${patientGender || 'Not specified'}</span>
             </div>
-            <div class="vital-item">
-              <span class="vital-label">Analysis Duration:</span>
-              <span class="vital-value">${tenSecondStats.duration}s</span>
+            <div class="patient-field">
+              <span class="field-label">Device ID:</span>
+              <span class="field-value">${this.deviceId}</span>
             </div>
-            <div class="vital-item">
-              <span class="vital-label">Signal Quality:</span>
-              <span class="vital-value">${tenSecondStats.signalQuality}%</span>
+            <div class="patient-field">
+              <span class="field-label">Analysis Duration:</span>
+              <span class="field-value">${tenSecondStats.duration} seconds</span>
             </div>
-          </div>
-        </div>
-
-        <div class="ecg-intervals">
-          <h4>ECG Intervals (Last 10 Seconds)</h4>
-          <div class="intervals-grid">
-            <div class="interval-item">
-              <span class="interval-label">PR Interval:</span>
-              <span class="interval-value">${tenSecondStats.intervals.pr || '--'} ms</span>
-              <span class="interval-status">${this.getIntervalStatus('pr', tenSecondStats.intervals.pr)}</span>
-            </div>
-            <div class="interval-item">
-              <span class="interval-label">QRS Duration:</span>
-              <span class="interval-value">${tenSecondStats.intervals.qrs || '--'} ms</span>
-              <span class="interval-status">${this.getIntervalStatus('qrs', tenSecondStats.intervals.qrs)}</span>
-            </div>
-            <div class="interval-item">
-              <span class="interval-label">QT Interval:</span>
-              <span class="interval-value">${tenSecondStats.intervals.qt || '--'} ms</span>
-              <span class="interval-status">${this.getIntervalStatus('qt', tenSecondStats.intervals.qt)}</span>
-            </div>
-            <div class="interval-item">
-              <span class="interval-label">QTc Interval:</span>
-              <span class="interval-value">${tenSecondStats.intervals.qtc || '--'} ms</span>
-              <span class="interval-status">${this.getIntervalStatus('qtc', tenSecondStats.intervals.qtc)}</span>
+            <div class="patient-field">
+              <span class="field-label">Data Points:</span>
+              <span class="field-value">${tenSecondStats.dataPoints}</span>
             </div>
           </div>
         </div>
 
-        <div class="waveform-screenshots">
-          <h4>ECG Waveforms (10-Second Window)</h4>
-          <div class="waveform-screenshot">
-            <h5>ECG Signal - Last 10 Seconds</h5>
-            ${ecgScreenshot}
+        <!-- ECG Measurements Section -->
+        <div class="measurements-section">
+          <div class="section-header">ECG MEASUREMENTS</div>
+          <div class="measurements-grid">
+            <div class="measurement-group">
+              <div class="group-title">Heart Rate</div>
+              <div class="measurement-item">
+                <span class="measure-label">Rate:</span>
+                <span class="measure-value">${tenSecondStats.heartRate || '--'}</span>
+                <span class="measure-unit">BPM</span>
+                <span class="measure-status ${this.getHeartRateStatus(tenSecondStats.heartRate)}">${this.getHeartRateStatusText(tenSecondStats.heartRate)}</span>
+              </div>
+            </div>
+
+            <div class="measurement-group">
+              <div class="group-title">Intervals</div>
+              <div class="measurement-item">
+                <span class="measure-label">PR:</span>
+                <span class="measure-value">${tenSecondStats.intervals.pr || '--'}</span>
+                <span class="measure-unit">ms</span>
+                <span class="measure-status ${this.getIntervalStatusClass('pr', tenSecondStats.intervals.pr)}">${this.getIntervalStatus('pr', tenSecondStats.intervals.pr)}</span>
+              </div>
+              <div class="measurement-item">
+                <span class="measure-label">QRS:</span>
+                <span class="measure-value">${tenSecondStats.intervals.qrs || '--'}</span>
+                <span class="measure-unit">ms</span>
+                <span class="measure-status ${this.getIntervalStatusClass('qrs', tenSecondStats.intervals.qrs)}">${this.getIntervalStatus('qrs', tenSecondStats.intervals.qrs)}</span>
+              </div>
+              <div class="measurement-item">
+                <span class="measure-label">QT:</span>
+                <span class="measure-value">${tenSecondStats.intervals.qt || '--'}</span>
+                <span class="measure-unit">ms</span>
+                <span class="measure-status ${this.getIntervalStatusClass('qt', tenSecondStats.intervals.qt)}">${this.getIntervalStatus('qt', tenSecondStats.intervals.qt)}</span>
+              </div>
+              <div class="measurement-item">
+                <span class="measure-label">QTc:</span>
+                <span class="measure-value">${tenSecondStats.intervals.qtc || '--'}</span>
+                <span class="measure-unit">ms</span>
+                <span class="measure-status ${this.getIntervalStatusClass('qtc', tenSecondStats.intervals.qtc)}">${this.getIntervalStatus('qtc', tenSecondStats.intervals.qtc)}</span>
+              </div>
+            </div>
+
+            <div class="measurement-group">
+              <div class="group-title">Signal Quality</div>
+              <div class="measurement-item">
+                <span class="measure-label">Quality:</span>
+                <span class="measure-value">${tenSecondStats.signalQuality}</span>
+                <span class="measure-unit">%</span>
+                <span class="measure-status ${this.getQualityStatusClass(tenSecondStats.signalQuality)}">${this.getQualityStatusText(tenSecondStats.signalQuality)}</span>
+              </div>
+              <div class="measurement-item">
+                <span class="measure-label">R Peaks:</span>
+                <span class="measure-value">${tenSecondStats.rPeakCount || 0}</span>
+                <span class="measure-unit">detected</span>
+                <span class="measure-status normal">Normal</span>
+              </div>
+            </div>
           </div>
-          <div class="waveform-screenshot">
-            <h5>Heart Rate Trend - Last 10 Seconds</h5>
-            ${bpmScreenshot}
+        </div>
+            <h3>PATIENT INFORMATION</h3>
+            <div class="demo-grid">
+              <div class="demo-item">
+                <span class="demo-label">Name:</span>
+                <span class="demo-value">${patientName}</span>
+              </div>
+              <div class="demo-item">
+                <span class="demo-label">Age:</span>
+                <span class="demo-value">${patientAge || 'Not specified'}</span>
+              </div>
+              <div class="demo-item">
+                <span class="demo-label">Gender:</span>
+                <span class="demo-value">${patientGender || 'Not specified'}</span>
+              </div>
+              <div class="demo-item">
+                <span class="demo-label">Date:</span>
+                <span class="demo-value">${currentTime.toLocaleDateString()}</span>
+              </div>
+              <div class="demo-item">
+                <span class="demo-label">Time:</span>
+                <span class="demo-value">${currentTime.toLocaleTimeString()}</span>
+              </div>
+              <div class="demo-item">
+                <span class="demo-label">Device:</span>
+                <span class="demo-value">${this.deviceId || 'Unknown'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vital Signs and Measurements -->
+        <div class="measurements-section">
+          <h3>VITAL SIGNS & MEASUREMENTS</h3>
+          <div class="measurements-table">
+            <table class="medical-table">
+              <thead>
+                <tr>
+                  <th>Parameter</th>
+                  <th>Value</th>
+                  <th>Normal Range</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Heart Rate</td>
+                  <td><strong>${tenSecondStats.heartRate || '--'} BPM</strong></td>
+                  <td>60-100 BPM</td>
+                  <td class="status-${this.getHeartRateStatus(tenSecondStats.heartRate)}">${this.getHeartRateStatusText(tenSecondStats.heartRate)}</td>
+                </tr>
+                <tr>
+                  <td>Signal Quality</td>
+                  <td><strong>${tenSecondStats.signalQuality}%</strong></td>
+                  <td>≥ 80%</td>
+                  <td class="status-${tenSecondStats.signalQuality >= 80 ? 'normal' : 'abnormal'}">${tenSecondStats.signalQuality >= 80 ? 'Good' : 'Poor'}</td>
+                </tr>
+                <tr>
+                  <td>R Peaks Detected</td>
+                  <td><strong>${tenSecondStats.rPeakCount || '--'}</strong></td>
+                  <td>10-17 (10s)</td>
+                  <td class="status-info">Detected</td>
+                </tr>
+                <tr>
+                  <td>Analysis Duration</td>
+                  <td><strong>${tenSecondStats.duration}s</strong></td>
+                  <td>10s</td>
+                  <td class="status-normal">Complete</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ECG Intervals -->
+        <div class="intervals-section">
+          <h3>ECG INTERVALS & DURATIONS</h3>
+          <div class="intervals-table">
+            <table class="medical-table">
+              <thead>
+                <tr>
+                  <th>Interval</th>
+                  <th>Measured Value</th>
+                  <th>Normal Range</th>
+                  <th>Interpretation</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>PR Interval</td>
+                  <td><strong>${tenSecondStats.intervals.pr || '--'} ms</strong></td>
+                  <td>120-200 ms</td>
+                  <td class="status-${this.getIntervalStatusClass('pr', tenSecondStats.intervals.pr)}">${this.getIntervalStatus('pr', tenSecondStats.intervals.pr)}</td>
+                </tr>
+                <tr>
+                  <td>QRS Duration</td>
+                  <td><strong>${tenSecondStats.intervals.qrs || '--'} ms</strong></td>
+                  <td>80-120 ms</td>
+                  <td class="status-${this.getIntervalStatusClass('qrs', tenSecondStats.intervals.qrs)}">${this.getIntervalStatus('qrs', tenSecondStats.intervals.qrs)}</td>
+                </tr>
+                <tr>
+                  <td>QT Interval</td>
+                  <td><strong>${tenSecondStats.intervals.qt || '--'} ms</strong></td>
+                  <td>350-450 ms</td>
+                  <td class="status-${this.getIntervalStatusClass('qt', tenSecondStats.intervals.qt)}">${this.getIntervalStatus('qt', tenSecondStats.intervals.qt)}</td>
+                </tr>
+                <tr>
+                  <td>QTc Interval</td>
+                  <td><strong>${tenSecondStats.intervals.qtc || '--'} ms</strong></td>
+                  <td>300-440 ms</td>
+                  <td class="status-${this.getIntervalStatusClass('qtc', tenSecondStats.intervals.qtc)}">${this.getIntervalStatus('qtc', tenSecondStats.intervals.qtc)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ECG Waveforms -->
+        <div class="waveforms-section">
+          <h3>ECG WAVEFORMS (10-SECOND ANALYSIS WINDOW)</h3>
+          <div class="waveform-container">
+            <div class="waveform-panel">
+              <div class="waveform-header">
+                <h4>Real-Time ECG Signal</h4>
+                <div class="waveform-specs">
+                  <span>Speed: 25mm/s</span>
+                  <span>Gain: 10mm/mV</span>
+                  <span>Filter: 0.5-40Hz</span>
+                </div>
+              </div>
+              <div class="waveform-display">
+                ${ecgScreenshot}
+              </div>
+            </div>
+            <div class="waveform-panel">
+              <div class="waveform-header">
+                <h4>Heart Rate Trend</h4>
+                <div class="waveform-specs">
+                  <span>Duration: 10 seconds</span>
+                  <span>Resolution: 0.1s</span>
+                </div>
+              </div>
+              <div class="waveform-display">
+                ${bpmScreenshot}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2282,11 +2530,20 @@ class ECGMonitor {
     try {
       const canvas = document.getElementById('ecgChart');
       if (canvas && window.html2canvas) {
-        const screenshot = await html2canvas(canvas.parentElement, {
+        const chartContainer = canvas.parentElement;
+        const screenshot = await html2canvas(chartContainer, {
           backgroundColor: '#ffffff',
-          scale: 2
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          width: chartContainer.offsetWidth,
+          height: chartContainer.offsetHeight,
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: chartContainer.offsetWidth,
+          windowHeight: chartContainer.offsetHeight
         });
-        return `<img src="${screenshot.toDataURL()}" alt="ECG Waveform" />`;
+        return `<img src="${screenshot.toDataURL('image/png', 1.0)}" alt="ECG Waveform" style="width: 100%; height: auto; max-width: 800px;" />`;
       }
     } catch (error) {
       console.error('Error capturing ECG waveform:', error);
@@ -2298,11 +2555,20 @@ class ECGMonitor {
     try {
       const canvas = document.getElementById('bpmChart');
       if (canvas && window.html2canvas) {
-        const screenshot = await html2canvas(canvas.parentElement, {
+        const chartContainer = canvas.parentElement;
+        const screenshot = await html2canvas(chartContainer, {
           backgroundColor: '#ffffff',
-          scale: 2
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          width: chartContainer.offsetWidth,
+          height: chartContainer.offsetHeight,
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: chartContainer.offsetWidth,
+          windowHeight: chartContainer.offsetHeight
         });
-        return `<img src="${screenshot.toDataURL()}" alt="Heart Rate Trend" />`;
+        return `<img src="${screenshot.toDataURL('image/png', 1.0)}" alt="Heart Rate Trend" style="width: 100%; height: auto; max-width: 800px;" />`;
       }
     } catch (error) {
       console.error('Error capturing BPM chart:', error);
@@ -2325,6 +2591,83 @@ class ECGMonitor {
 
     if (value < range.min) return 'Short';
     if (value > range.max) return 'Prolonged';
+    return 'Normal';
+  }
+
+  getIntervalStatusClass(type, value) {
+    if (!value) return 'not-measured';
+
+    const ranges = {
+      pr: { min: 120, max: 200 },
+      qrs: { min: 80, max: 120 },
+      qt: { min: 350, max: 450 },
+      qtc: { min: 300, max: 440 }
+    };
+
+    const range = ranges[type];
+    if (!range) return 'unknown';
+
+    if (value < range.min) return 'abnormal';
+    if (value > range.max) return 'abnormal';
+    return 'normal';
+  }
+
+  getHeartRateStatus(heartRate) {
+    if (!heartRate) return 'unknown';
+    if (heartRate < 60) return 'abnormal';
+    if (heartRate > 100) return 'abnormal';
+    return 'normal';
+  }
+
+  getHeartRateStatusText(heartRate) {
+    if (!heartRate) return 'Not measured';
+    if (heartRate < 60) return 'Bradycardia';
+    if (heartRate > 100) return 'Tachycardia';
+    return 'Normal';
+  }
+
+  getQualityStatusClass(quality) {
+    if (quality >= 90) return 'excellent';
+    if (quality >= 80) return 'normal';
+    if (quality >= 70) return 'fair';
+    return 'poor';
+  }
+
+  getQualityStatusText(quality) {
+    if (quality >= 90) return 'Excellent';
+    if (quality >= 80) return 'Good';
+    if (quality >= 70) return 'Fair';
+    return 'Poor';
+  }
+
+  getIntervalStatusClass(type, value) {
+    if (!value) return 'info';
+
+    const ranges = {
+      pr: { min: 120, max: 200 },
+      qrs: { min: 80, max: 120 },
+      qt: { min: 350, max: 450 },
+      qtc: { min: 300, max: 440 }
+    };
+
+    const range = ranges[type];
+    if (!range) return 'info';
+
+    if (value < range.min || value > range.max) return 'abnormal';
+    return 'normal';
+  }
+
+  getHeartRateStatus(heartRate) {
+    if (!heartRate) return 'info';
+    if (heartRate < 60) return 'abnormal';
+    if (heartRate > 100) return 'abnormal';
+    return 'normal';
+  }
+
+  getHeartRateStatusText(heartRate) {
+    if (!heartRate) return 'Not measured';
+    if (heartRate < 60) return 'Bradycardia';
+    if (heartRate > 100) return 'Tachycardia';
     return 'Normal';
   }
 
@@ -2370,12 +2713,158 @@ class ECGMonitor {
     return interpretation;
   }
 
-  downloadReportPDF(_patientName) {
-    if (window.jsPDF) {
-      // This would implement PDF generation similar to the recording system
-      alert('PDF download functionality would be implemented with jsPDF library');
-    } else {
-      alert('PDF library not loaded');
+  async downloadReportPDF(patientName) {
+    if (!window.jspdf) {
+      this.showAlert('PDF library not loaded. Please refresh the page and try again.', 'error');
+      return;
+    }
+
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+
+      // Get the 10-second statistics for the report
+      const tenSecondStats = this.calculateTenSecondStatistics();
+      const currentTime = new Date();
+
+      // Set up document
+      doc.setFontSize(20);
+      doc.text('Real-Time ECG Analysis Report', 20, 20);
+
+      // Patient information
+      doc.setFontSize(14);
+      doc.text('Patient Information', 20, 40);
+      doc.setFontSize(12);
+      doc.text(`Name: ${patientName}`, 20, 50);
+      doc.text(`Date: ${currentTime.toLocaleDateString()}`, 20, 60);
+      doc.text(`Time: ${currentTime.toLocaleTimeString()}`, 20, 70);
+
+      // Analysis window information
+      doc.setFontSize(14);
+      doc.text('Analysis Details', 120, 40);
+      doc.setFontSize(12);
+      doc.text(`Analysis Window: ${tenSecondStats.duration} seconds`, 120, 50);
+      doc.text(`Data Points: ${tenSecondStats.dataPoints}`, 120, 60);
+      doc.text(`R Peaks Detected: ${tenSecondStats.rPeakCount || 0}`, 120, 70);
+      doc.text(`Device: ${this.deviceId}`, 120, 80);
+
+      // Vital signs
+      doc.setFontSize(14);
+      doc.text('Vital Signs (10-Second Analysis)', 20, 100);
+      doc.setFontSize(12);
+      doc.text(`Heart Rate: ${tenSecondStats.heartRate || '--'} BPM`, 20, 110);
+      doc.text(`Signal Quality: ${tenSecondStats.signalQuality}%`, 20, 120);
+
+      // ECG Intervals
+      doc.setFontSize(14);
+      doc.text('ECG Intervals', 20, 140);
+      doc.setFontSize(12);
+      doc.text(`PR Interval: ${tenSecondStats.intervals.pr || '--'} ms`, 20, 150);
+      doc.text(`QRS Duration: ${tenSecondStats.intervals.qrs || '--'} ms`, 20, 160);
+      doc.text(`QT Interval: ${tenSecondStats.intervals.qt || '--'} ms`, 20, 170);
+      doc.text(`QTc Interval: ${tenSecondStats.intervals.qtc || '--'} ms`, 20, 180);
+
+      // Add interval status
+      doc.setFontSize(10);
+      doc.text(`PR Status: ${this.getIntervalStatus('pr', tenSecondStats.intervals.pr)}`, 120, 150);
+      doc.text(`QRS Status: ${this.getIntervalStatus('qrs', tenSecondStats.intervals.qrs)}`, 120, 160);
+      doc.text(`QT Status: ${this.getIntervalStatus('qt', tenSecondStats.intervals.qt)}`, 120, 170);
+      doc.text(`QTc Status: ${this.getIntervalStatus('qtc', tenSecondStats.intervals.qtc)}`, 120, 180);
+
+      // Add waveform screenshots
+      try {
+        // Capture ECG waveform
+        const ecgCanvas = document.getElementById('ecgChart');
+        if (ecgCanvas && window.html2canvas) {
+          doc.addPage();
+          doc.setFontSize(14);
+          doc.text('ECG Waveform (10 Seconds)', 20, 20);
+
+          const ecgScreenshot = await html2canvas(ecgCanvas.parentElement, {
+            backgroundColor: '#ffffff',
+            scale: 1
+          });
+
+          const ecgImgData = ecgScreenshot.toDataURL('image/png');
+          const ecgImgWidth = 170;
+          const ecgImgHeight = (ecgScreenshot.height * ecgImgWidth) / ecgScreenshot.width;
+
+          doc.addImage(ecgImgData, 'PNG', 20, 30, ecgImgWidth, Math.min(ecgImgHeight, 100));
+
+          // Capture BPM chart
+          const bpmCanvas = document.getElementById('bpmChart');
+          if (bpmCanvas) {
+            const bpmScreenshot = await html2canvas(bpmCanvas.parentElement, {
+              backgroundColor: '#ffffff',
+              scale: 1
+            });
+
+            const bpmImgData = bpmScreenshot.toDataURL('image/png');
+            const bpmImgWidth = 170;
+            const bpmImgHeight = (bpmScreenshot.height * bpmImgWidth) / bpmScreenshot.width;
+
+            doc.text('Heart Rate Trend (10 Seconds)', 20, 150);
+            doc.addImage(bpmImgData, 'PNG', 20, 160, bpmImgWidth, Math.min(bpmImgHeight, 80));
+          }
+        }
+      } catch (error) {
+        console.error('Error adding waveform screenshots:', error);
+        doc.addPage();
+        doc.setFontSize(12);
+        doc.text('Waveform screenshots could not be captured.', 20, 20);
+      }
+
+      // Add clinical notes
+      doc.addPage();
+      doc.setFontSize(14);
+      doc.text('Clinical Interpretation', 20, 20);
+      doc.setFontSize(10);
+
+      let yPos = 30;
+
+      // Heart rate interpretation
+      const currentHR = tenSecondStats.heartRate;
+      if (currentHR) {
+        if (currentHR < 60) {
+          doc.text('• Bradycardia detected (HR < 60 BPM)', 20, yPos);
+        } else if (currentHR > 100) {
+          doc.text('• Tachycardia detected (HR > 100 BPM)', 20, yPos);
+        } else {
+          doc.text('• Normal heart rate range (60-100 BPM)', 20, yPos);
+        }
+        yPos += 10;
+      }
+
+      // Signal quality
+      if (tenSecondStats.signalQuality < 70) {
+        doc.text('• Poor signal quality - consider improving electrode contact', 20, yPos);
+        yPos += 10;
+      } else if (tenSecondStats.signalQuality > 90) {
+        doc.text('• Excellent signal quality achieved', 20, yPos);
+        yPos += 10;
+      }
+
+      // Analysis window note
+      yPos += 10;
+      doc.text('Analysis Window: All calculations based on last 10 seconds of continuous ECG data.', 20, yPos);
+
+      // Disclaimer
+      yPos += 20;
+      doc.setFontSize(8);
+      doc.text('DISCLAIMER: This analysis is for educational purposes only and should not be used for clinical', 20, yPos);
+      yPos += 8;
+      doc.text('diagnosis. Always consult with a qualified healthcare professional for medical interpretation.', 20, yPos);
+
+      // Save the PDF
+      const fileName = `ecg_report_${patientName.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+      doc.save(fileName);
+
+      // Show success notification
+      this.showAlert(`ECG report for ${patientName} has been downloaded successfully!`, 'success');
+
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      this.showAlert('Error generating PDF: ' + error.message, 'error');
     }
   }
 

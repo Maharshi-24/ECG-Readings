@@ -488,6 +488,10 @@ class ECGRecordingSystem {
     // Save recording data
     this.saveCurrentRecording();
 
+    // Show success message for completed recording
+    const currentLead = this.leadConfigurations[this.currentSession.numReadings][this.currentLeadIndex];
+    alert(`✅ Recording completed for ${currentLead.name}!\n\n10 seconds of ECG data captured successfully.`);
+
     // Move to next lead or complete session
     this.currentLeadIndex++;
 
@@ -921,6 +925,10 @@ class ECGRecordingSystem {
     document.getElementById('reportSection').style.display = 'block';
 
     this.createReportContent();
+
+    // Show success message
+    const validRecordings = this.currentSession.recordings.filter(r => !r.skipped);
+    alert(`Multi-lead ECG report for ${this.currentSession.patientName} has been generated successfully!\n\nReport includes:\n• ${validRecordings.length} valid recordings\n• 12-lead waveform display\n• Clinical analysis and interpretation\n\nYou can now download as PDF or print the report.`);
   }
 
   createReportContent() {
@@ -1488,6 +1496,9 @@ class ECGRecordingSystem {
       // Save the PDF
       const fileName = `ecg_report_${this.currentSession.patientName.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
       doc.save(fileName);
+
+      // Show success message
+      alert(`Multi-lead ECG report "${fileName}" has been downloaded successfully!\n\nThe PDF includes:\n• 12-lead waveform displays\n• Complete analysis data\n• Clinical interpretation\n• Professional formatting`);
 
     } catch (error) {
       console.error('Error generating PDF:', error);

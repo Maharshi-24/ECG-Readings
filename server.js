@@ -121,7 +121,7 @@ server.listen(PORT, () => {
   console.log('💡 Tips:');
   console.log('   • Make sure your ESP32 is connected and running');
   console.log('   • Check that HiveMQ Cloud credentials are correct');
-  console.log('   • Use device ID "P3" to connect to your ESP32');
+  console.log('   • Enter your device ID (e.g., "P3") to connect to your ESP32');
   console.log('   • Click "Debug" button to see connection details');
   console.log('=================================');
 });
