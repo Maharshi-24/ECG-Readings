@@ -323,28 +323,7 @@
   100% { transform: rotate(360deg); }
 }
 
-/* ECG Preview */
-.ecg-preview {
-  margin: 30px 0;
-}
-
-.ecg-preview h3 {
-  color: #333;
-  margin-bottom: 15px;
-}
-
-.preview-chart {
-  background: #000;
-  border-radius: 8px;
-  padding: 10px;
-  height: 200px;
-  position: relative;
-}
-
-.preview-chart canvas {
-  width: 100% !important;
-  height: 100% !important;
-}
+/* ECG Preview - Now using chart-container from main styles */
 
 .signal-quality {
   margin-top: 10px;

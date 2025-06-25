@@ -115,7 +115,7 @@ class ECGRecordingSystem {
         datasets: [{
           label: 'ECG Signal',
           data: [],
-          borderColor: '#00ff00',
+          borderColor: '#ff0000',
           backgroundColor: 'transparent',
           borderWidth: 2,
           pointRadius: 0,
@@ -156,12 +156,20 @@ class ECGRecordingSystem {
     const deviceId = document.getElementById('deviceId').value.trim();
 
     if (!patientName) {
-      alert('Please enter patient name');
+      if (window.notifications) {
+        window.notifications.warning('Missing Patient Name', 'Please enter patient name before starting recording session.');
+      } else {
+        alert('Please enter patient name');
+      }
       return;
     }
 
     if (!deviceId) {
-      alert('Please enter device ID');
+      if (window.notifications) {
+        window.notifications.warning('Missing Device ID', 'Please enter device ID before starting recording session.');
+      } else {
+        alert('Please enter device ID');
+      }
       return;
     }
 
@@ -487,10 +495,6 @@ class ECGRecordingSystem {
 
     // Save recording data
     this.saveCurrentRecording();
-
-    // Show success message for completed recording
-    const currentLead = this.leadConfigurations[this.currentSession.numReadings][this.currentLeadIndex];
-    alert(`✅ Recording completed for ${currentLead.name}!\n\n10 seconds of ECG data captured successfully.`);
 
     // Move to next lead or complete session
     this.currentLeadIndex++;
@@ -925,10 +929,6 @@ class ECGRecordingSystem {
     document.getElementById('reportSection').style.display = 'block';
 
     this.createReportContent();
-
-    // Show success message
-    const validRecordings = this.currentSession.recordings.filter(r => !r.skipped);
-    alert(`Multi-lead ECG report for ${this.currentSession.patientName} has been generated successfully!\n\nReport includes:\n• ${validRecordings.length} valid recordings\n• 12-lead waveform display\n• Clinical analysis and interpretation\n\nYou can now download as PDF or print the report.`);
   }
 
   createReportContent() {
@@ -1497,9 +1497,6 @@ class ECGRecordingSystem {
       const fileName = `ecg_report_${this.currentSession.patientName.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
       doc.save(fileName);
 
-      // Show success message
-      alert(`Multi-lead ECG report "${fileName}" has been downloaded successfully!\n\nThe PDF includes:\n• 12-lead waveform displays\n• Complete analysis data\n• Clinical interpretation\n• Professional formatting`);
-
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('Error generating PDF. Please ensure jsPDF library is loaded.');
@@ -1660,4 +1657,83 @@ class ECGRecordingSystem {
 // Initialize the recording system when page loads
 document.addEventListener('DOMContentLoaded', () => {
   new ECGRecordingSystem();
+
+  // Initialize notification system if not already available
+  if (!window.notifications) {
+    // Copy the NotificationSystem class from main app
+    class NotificationSystem {
+      constructor() {
+        this.container = document.getElementById('notificationContainer');
+        this.notifications = [];
+      }
+
+      show(title, message, type = 'info', duration = 5000) {
+        const notification = this.createNotification(title, message, type, duration);
+        this.container.appendChild(notification);
+        this.notifications.push(notification);
+
+        if (duration > 0) {
+          setTimeout(() => {
+            this.remove(notification);
+          }, duration);
+        }
+
+        return notification;
+      }
+
+      createNotification(title, message, type, duration) {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+
+        notification.innerHTML = `
+          <div class="notification-header">
+            <div class="notification-title">${title}</div>
+            <button class="notification-close">&times;</button>
+          </div>
+          <div class="notification-message">${message}</div>
+          ${duration > 0 ? '<div class="notification-progress"></div>' : ''}
+        `;
+
+        const closeBtn = notification.querySelector('.notification-close');
+        closeBtn.addEventListener('click', () => {
+          this.remove(notification);
+        });
+
+        return notification;
+      }
+
+      remove(notification) {
+        if (notification && notification.parentNode) {
+          notification.style.animation = 'slideOut 0.3s ease-out';
+          setTimeout(() => {
+            if (notification.parentNode) {
+              notification.parentNode.removeChild(notification);
+            }
+            const index = this.notifications.indexOf(notification);
+            if (index > -1) {
+              this.notifications.splice(index, 1);
+            }
+          }, 300);
+        }
+      }
+
+      success(title, message, duration = 5000) {
+        return this.show(title, message, 'success', duration);
+      }
+
+      warning(title, message, duration = 7000) {
+        return this.show(title, message, 'warning', duration);
+      }
+
+      error(title, message, duration = 8000) {
+        return this.show(title, message, 'error', duration);
+      }
+
+      info(title, message, duration = 5000) {
+        return this.show(title, message, 'info', duration);
+      }
+    }
+
+    window.notifications = new NotificationSystem();
+  }
 });

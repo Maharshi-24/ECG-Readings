@@ -117,14 +117,22 @@
         </div>
 
         <!-- Real-time ECG Preview -->
-        <div class="ecg-preview">
-          <h3>Live ECG Signal</h3>
-          <div class="preview-chart">
-            <canvas id="previewChart"></canvas>
-          </div>
-          <div class="signal-quality">
-            <span>Signal Quality: </span>
-            <span id="signalQuality" class="quality-value">--</span>
+        <div class="chart-container">
+          <div class="chart-wrapper">
+            <h3>ECG Signal (Real-time)</h3>
+            <div class="chart-controls">
+              <div class="chart-info">
+                <span class="sweep-speed">Sweep: 25mm/s</span>
+                <span class="amplitude-scale">Scale: 10mm/mV</span>
+              </div>
+              <div class="signal-quality">
+                <span>Signal Quality: </span>
+                <span id="signalQuality" class="quality-value">--</span>
+              </div>
+            </div>
+            <div class="chart-area ecg-chart">
+              <canvas id="previewChart"></canvas>
+            </div>
           </div>
         </div>
       </div>
@@ -163,6 +171,9 @@
       </div>
     </section>
   </div>
+
+  <!-- Notification System -->
+  <div id="notificationContainer" class="notification-container"></div>
 
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
