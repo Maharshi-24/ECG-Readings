@@ -111,14 +111,18 @@ server.listen(PORT, () => {
   console.log('=================================');
   console.log('📋 Available endpoints:');
   console.log(`   • http://localhost:${PORT}/ - ECG Monitor Dashboard`);
-  console.log(`   • http://localhost:${PORT}/index.html - Main page`);
-  console.log(`   • http://localhost:${PORT}/styles.css - Stylesheet`);
-  console.log(`   • http://localhost:${PORT}/app.js - Application logic`);
+  console.log(`   • http://localhost:${PORT}/index.html - Real-time monitoring`);
+  console.log(`   • http://localhost:${PORT}/recording.html - Multi-lead recording`);
+  console.log(`   • http://localhost:${PORT}/styles.css - Main stylesheet`);
+  console.log(`   • http://localhost:${PORT}/recording-styles.css - Recording stylesheet`);
+  console.log(`   • http://localhost:${PORT}/app.js - Main application logic`);
+  console.log(`   • http://localhost:${PORT}/recording-app.js - Recording application logic`);
   console.log('=================================');
   console.log('💡 Tips:');
   console.log('   • Make sure your ESP32 is connected and running');
   console.log('   • Check that HiveMQ Cloud credentials are correct');
-  console.log('   • Use device ID "ECG1" to connect to your ESP32');
+  console.log('   • Use device ID "P3" to connect to your ESP32');
+  console.log('   • Click "Debug" button to see connection details');
   console.log('=================================');
 });
 

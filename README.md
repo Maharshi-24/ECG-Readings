@@ -77,12 +77,69 @@ A comprehensive real-time ECG monitoring system using ESP32 microcontroller and 
    ```
 4. Open your browser and go to: `http://localhost:3000`
 
-### 3. Connect and Monitor
+### 3. Choose Your Mode
 
-1. Enter device ID "ECG1" in the web interface
-2. Click "Connect" to start receiving data
-3. Attach ECG electrodes to the patient
-4. Monitor real-time ECG signal and heart rate
+**Real-Time Monitor** (`http://localhost:3000/`)
+- Continuous ECG monitoring
+- Real-time heart rate analysis
+- Beat-by-beat analysis
+- Demo mode available
+
+**Multi-Lead Recording** (`http://localhost:3000/recording.html`)
+- 10-second ECG recordings
+- Multi-lead simulation (3, 6, or 12 leads)
+- Professional ECG reports
+- PDF export capabilities
+
+## 📊 Multi-Lead Recording System
+
+### New 10-Second Recording Features
+- **Precise Timing**: Exactly 10-second recordings for each lead position
+- **Multi-Lead Simulation**: Simulate 12-lead ECG using 3-electrode setup
+- **Electrode Positioning Guide**: Step-by-step guidance for each lead placement
+- **Session Management**: Complete recording sessions with patient information
+- **Comprehensive Reports**: Detailed ECG analysis with clinical interpretation
+- **Professional Export**: PDF reports and raw data export
+
+### How to Use Multi-Lead Recording
+
+1. **Setup Recording Session**
+   - Navigate to Multi-Lead Recording page
+   - Enter patient information (name, age, gender)
+   - Select number of lead positions (3, 6, or 12)
+   - Choose between real device connection or demo mode
+
+2. **Record ECG Leads**
+   - Follow electrode placement instructions for each lead
+   - Ensure good signal quality before recording
+   - Click "Start 10s Recording" for each position
+   - System automatically progresses through all lead positions
+
+3. **Generate Professional Reports**
+   - Review all completed recordings
+   - Generate comprehensive analysis report
+   - Export as professional PDF or raw JSON data
+
+### Lead Configurations
+
+**3-Lead Basic Configuration:**
+- Lead I: Right arm (-) to Left arm (+)
+- Lead II: Right arm (-) to Left leg (+)
+- Lead III: Left arm (-) to Left leg (+)
+
+**6-Lead Extended Configuration:**
+- Standard limb leads (I, II, III)
+- Augmented leads (aVR, aVL, aVF)
+
+**12-Lead Full Simulation:**
+- Standard and augmented limb leads
+- Precordial leads V1-V6 (simulated with chest placements)
+
+### Report Features
+- Patient demographics and session information
+- Lead-by-lead analysis with heart rate and signal quality
+- Clinical interpretation and automated status indicators
+- Professional formatting suitable for medical documentation
 
 ## 🌐 MQTT Configuration
 

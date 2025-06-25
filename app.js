@@ -13,6 +13,10 @@ class ECGMonitor {
     this.isConnected = false;
     this.isPaused = false;
     this.deviceId = '';
+    this.lastDataReceived = 0;
+    this.connectionHeartbeat = null;
+    this.dataCollectionStartTime = 0;
+    this.continuousDataDuration = 0;
     
     // Data storage
     this.ecgData = [];
@@ -22,8 +26,8 @@ class ECGMonitor {
     this.dataCount = 0;
     
     // Chart configuration
-    this.maxECGPoints = 250;      // Show last 2.5 seconds (250 points at 100Hz)
-    this.maxBPMPoints = 60;       // Show last 60 points (1 minute)
+    this.maxECGPoints = 1000;     // Show last 10 seconds (1000 points at 100Hz)
+    this.maxBPMPoints = 100;      // Show last 10 seconds (10 points per second)
     this.ecgChart = null;         // Chart.js instance for ECG waveform
     this.bpmChart = null;         // Chart.js instance for BPM trend
     this.beatChart = null;        // Chart.js instance for beat analysis
@@ -72,7 +76,13 @@ class ECGMonitor {
       max: 0,
       history: []
     };
-    
+
+    // Device heartbeat monitoring
+    this.lastDataReceived = 0;
+    this.deviceHeartbeatInterval = null;
+    this.deviceOnline = false;
+    this.dataCount = 0;
+
     this.initializeApp();
     this.registerChartPlugins();
   }
@@ -226,13 +236,13 @@ class ECGMonitor {
               font: {
                 size: 10
               },
-              maxTicksLimit: 10,
+              maxTicksLimit: 11,              // 0, 1, 2, ..., 10 seconds
               callback: function(value) {
-                return value.toFixed(1) + 's';
+                return value.toFixed(0) + 's';
               }
             },
             min: 0,
-            max: 2.5                        // Show 2.5 seconds of data
+            max: 10                         // Show 10 seconds of data
           },
           y: {
             type: 'linear',
@@ -351,18 +361,33 @@ class ECGMonitor {
             display: true,
             title: {
               display: true,
-              text: 'Time'
+              text: 'Time (10 seconds)'
+            },
+            grid: {
+              color: 'rgba(0,0,0,0.2)',
+              lineWidth: 1
+            },
+            ticks: {
+              maxTicksLimit: 11, // 0-10 seconds
+              callback: function(_value, index) {
+                return index + 's';
+              }
             }
           },
           y: {
             beginAtZero: true,
             max: 200,
+            min: 40,
             title: {
               display: true,
-              text: 'BPM'
+              text: 'Heart Rate (BPM)'
             },
             grid: {
-              color: 'rgba(0,0,0,0.1)'
+              color: 'rgba(0,0,0,0.1)',
+              lineWidth: 1
+            },
+            ticks: {
+              stepSize: 20
             }
           }
         },
@@ -455,11 +480,63 @@ class ECGMonitor {
   }
   
   setupEventListeners() {
+    // Navigation
+    const recordingBtn = document.getElementById('recordingBtn');
+    if (recordingBtn) {
+      recordingBtn.addEventListener('click', () => {
+        window.location.href = 'recording.html';
+      });
+    }
+
     this.elements.connectBtn.addEventListener('click', () => this.connect());
     this.elements.disconnectBtn.addEventListener('click', () => this.disconnect());
+
+    // Debug toggle
+    const debugToggleBtn = document.getElementById('debugToggleBtn');
+    if (debugToggleBtn) {
+      debugToggleBtn.addEventListener('click', () => this.toggleDebug());
+    }
+
+    // Test connection
+    const testConnectionBtn = document.getElementById('testConnectionBtn');
+    if (testConnectionBtn) {
+      testConnectionBtn.addEventListener('click', () => this.testConnection());
+    }
     this.elements.pauseBtn.addEventListener('click', () => this.togglePause());
     this.elements.clearBtn.addEventListener('click', () => this.clearData());
     this.elements.analyzeBtn.addEventListener('click', () => this.analyzeBeat());
+
+    // Real-time report functionality
+    const generateRealtimeReportBtn = document.getElementById('generateRealtimeReportBtn');
+    if (generateRealtimeReportBtn) {
+      generateRealtimeReportBtn.addEventListener('click', () => this.showReportModal());
+    }
+
+    // Modal event listeners
+    const closeReportModal = document.getElementById('closeReportModal');
+    if (closeReportModal) {
+      closeReportModal.addEventListener('click', () => this.hideReportModal());
+    }
+
+    const generateReportBtn = document.getElementById('generateReportBtn');
+    if (generateReportBtn) {
+      generateReportBtn.addEventListener('click', () => this.generateRealtimeReport());
+    }
+
+    const cancelReportBtn = document.getElementById('cancelReportBtn');
+    if (cancelReportBtn) {
+      cancelReportBtn.addEventListener('click', () => this.hideReportModal());
+    }
+
+    // Close modal when clicking outside
+    const modal = document.getElementById('realtimeReportModal');
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          this.hideReportModal();
+        }
+      });
+    }
 
     // Add demo mode button (for testing without ESP32)
     const demoBtn = document.createElement('button');
@@ -501,9 +578,10 @@ class ECGMonitor {
     this.client = mqtt.connect(this.mqttConfig.brokerUrl, options);
     
     this.client.on('connect', () => {
-      this.isConnected = true;
-      this.updateStatus(`Connected to device: ${deviceId}`, 'connected');
+      console.log('MQTT broker connected successfully');
+      this.updateStatus(`Connected to MQTT broker. Waiting for device ${deviceId}...`, 'connecting');
       this.subscribeToTopics();
+      this.startConnectionHeartbeat();
       this.updateUI();
     });
     
@@ -516,12 +594,16 @@ class ECGMonitor {
   subscribeToTopics() {
     const ecgTopic = `iot/devices/${this.deviceId}`;
     const statusTopic = `iot/devices/${this.deviceId}/status`;
-    
+
+    console.log(`Subscribing to topics: ${ecgTopic}, ${statusTopic}`);
+
     this.client.subscribe([ecgTopic, statusTopic], (err) => {
       if (err) {
+        console.error('Subscription error:', err);
         this.updateStatus('Subscription error: ' + err.message, 'error');
       } else {
-        this.updateStatus(`Listening for data from ${this.deviceId}...`, 'connected');
+        console.log(`Successfully subscribed to topics for device ${this.deviceId}`);
+        this.updateStatus(`Listening for data from ${this.deviceId}...`, 'connecting');
       }
     });
   }
@@ -529,21 +611,62 @@ class ECGMonitor {
   handleMessage(topic, message) {
     try {
       if (this.isPaused) return;
-      
+
       const messageStr = message.toString();
       console.log(`Message received on ${topic}:`, messageStr);
-      
+
+      // Update last data received timestamp
+      this.lastDataReceived = Date.now();
+
+      // Track continuous data collection
+      if (this.dataCollectionStartTime === 0) {
+        this.dataCollectionStartTime = Date.now();
+        this.continuousDataDuration = 0;
+      } else {
+        this.continuousDataDuration = Date.now() - this.dataCollectionStartTime;
+      }
+
+      // First data received - device is confirmed online
+      if (!this.isConnected) {
+        this.isConnected = true;
+        this.updateStatus(`Connected to device: ${this.deviceId}`, 'connected');
+        console.log('Device confirmed online - first data received');
+        this.updateUI();
+      }
+
       if (topic.endsWith('/status')) {
         this.updateStatus(`Device status: ${messageStr}`, 'connected');
         return;
       }
-      
+
       const data = JSON.parse(messageStr);
       this.processECGData(data);
-      
+
     } catch (error) {
       console.error('Error processing message:', error);
     }
+  }
+
+  startConnectionHeartbeat() {
+    // Clear any existing heartbeat
+    if (this.connectionHeartbeat) {
+      clearInterval(this.connectionHeartbeat);
+    }
+
+    // Start monitoring for device data
+    this.connectionHeartbeat = setInterval(() => {
+      const timeSinceLastData = Date.now() - this.lastDataReceived;
+
+      // If no data received for 15 seconds and we think we're connected, mark as offline
+      if (timeSinceLastData > 15000 && this.isConnected) {
+        console.log('Device appears to be offline - no data for 15 seconds');
+        this.isConnected = false;
+        this.dataCollectionStartTime = 0;
+        this.continuousDataDuration = 0;
+        this.updateStatus(`Device ${this.deviceId} appears to be offline`, 'error');
+        this.updateUI();
+      }
+    }, 5000); // Check every 5 seconds
   }
   
   processECGData(data) {
@@ -722,8 +845,9 @@ class ECGMonitor {
       // Enhanced ADC to mV conversion with baseline correction
       const millivolts = this.adcToMillivolts(adcValue);
 
-      // Calculate time in seconds (sweep from right to left, medical standard)
-      const timeSeconds = (i * samplingInterval) / 1000;
+      // Calculate time in seconds for 10-second window (newest data at right)
+      const totalTimeWindow = 10; // 10 seconds
+      const timeSeconds = totalTimeWindow - ((processedData.length - 1 - i) * samplingInterval) / 1000;
 
       chartData.push({
         x: timeSeconds,
@@ -957,10 +1081,33 @@ class ECGMonitor {
   updateBPMChart() {
     if (!this.bpmChart || this.bpmData.length === 0) return;
 
-    const labels = this.bpmTimestamps.map(t => t.toLocaleTimeString());
+    // Create 10-second time scale labels
+    const labels = [];
+    const now = Date.now();
+
+    // Generate labels for 10 seconds (0s to 10s)
+    for (let i = 0; i <= 100; i++) {
+      labels.push((i / 10).toFixed(1) + 's');
+    }
+
+    // Prepare data array with proper time alignment
+    const chartData = new Array(101).fill(null);
+
+    // Map BPM data to time positions
+    this.bpmData.forEach((bpm, index) => {
+      if (index < this.bpmTimestamps.length) {
+        const timestamp = this.bpmTimestamps[index];
+        const timeAgo = (now - timestamp) / 100; // Convert to deciseconds
+        const position = Math.max(0, Math.min(100, Math.round(100 - timeAgo)));
+
+        if (position >= 0 && position <= 100) {
+          chartData[position] = bpm;
+        }
+      }
+    });
 
     this.bpmChart.data.labels = labels;
-    this.bpmChart.data.datasets[0].data = this.bpmData;
+    this.bpmChart.data.datasets[0].data = chartData;
     this.bpmChart.update('none');
   }
 
@@ -1110,13 +1257,102 @@ class ECGMonitor {
 
   handleDisconnect() {
     this.isConnected = false;
+    this.dataCollectionStartTime = 0;
+    this.continuousDataDuration = 0;
     this.updateStatus('Disconnected from broker', '');
+
+    // Clear heartbeat monitoring
+    if (this.connectionHeartbeat) {
+      clearInterval(this.connectionHeartbeat);
+      this.connectionHeartbeat = null;
+    }
+
     this.updateUI();
   }
 
   updateStatus(message, type = '') {
     this.elements.status.textContent = message;
     this.elements.status.className = 'status ' + type;
+
+    // Update debug info
+    this.updateDebugInfo();
+  }
+
+  updateDebugInfo() {
+    const debugText = document.getElementById('debugText');
+    if (debugText) {
+      const timeSinceLastData = this.lastDataReceived ? Date.now() - this.lastDataReceived : 'Never';
+      const continuousSeconds = Math.floor(this.continuousDataDuration / 1000);
+      const debugInfo = `Device: ${this.deviceId} | Connected: ${this.isConnected} | Last Data: ${timeSinceLastData === 'Never' ? 'Never' : timeSinceLastData + 'ms ago'} | Continuous: ${continuousSeconds}s`;
+      debugText.textContent = debugInfo;
+    }
+  }
+
+  toggleDebug() {
+    const debugInfo = document.getElementById('debugInfo');
+    if (debugInfo) {
+      const isVisible = debugInfo.style.display !== 'none';
+      debugInfo.style.display = isVisible ? 'none' : 'block';
+      this.updateDebugInfo();
+    }
+  }
+
+  testConnection() {
+    const deviceId = this.elements.deviceIdInput.value.trim();
+    if (!deviceId) {
+      alert('Please enter a device ID first');
+      return;
+    }
+
+    this.updateStatus('Testing MQTT connection...', 'connecting');
+
+    // Create a test client
+    const testClient = mqtt.connect(this.mqttConfig.brokerUrl, {
+      username: this.mqttConfig.username,
+      password: this.mqttConfig.password,
+      clientId: `test-${Math.random().toString(16).substring(2, 10)}`,
+      clean: true,
+      connectTimeout: 10000
+    });
+
+    const timeout = setTimeout(() => {
+      testClient.end();
+      this.updateStatus('Connection test failed: Timeout', 'error');
+    }, 15000);
+
+    testClient.on('connect', () => {
+      clearTimeout(timeout);
+      this.updateStatus(`MQTT broker connection successful! Listening for device ${deviceId}...`, 'connected');
+
+      // Subscribe to test topic
+      const testTopic = `iot/devices/${deviceId}`;
+      testClient.subscribe(testTopic, (err) => {
+        if (err) {
+          this.updateStatus(`Subscription failed: ${err.message}`, 'error');
+        } else {
+          this.updateStatus(`Successfully subscribed to ${testTopic}. Waiting for device data...`, 'connecting');
+
+          // Listen for messages for 10 seconds
+          const messageTimeout = setTimeout(() => {
+            testClient.end();
+            this.updateStatus(`No data received from device ${deviceId} in 10 seconds. Check device status.`, 'error');
+          }, 10000);
+
+          testClient.on('message', (_topic, message) => {
+            clearTimeout(messageTimeout);
+            testClient.end();
+            this.updateStatus(`Device ${deviceId} is online and sending data!`, 'connected');
+            console.log('Test message received:', message.toString());
+          });
+        }
+      });
+    });
+
+    testClient.on('error', (error) => {
+      clearTimeout(timeout);
+      this.updateStatus(`Connection test failed: ${error.message}`, 'error');
+      console.error('Test connection error:', error);
+    });
   }
 
   updateUI() {
@@ -1223,13 +1459,13 @@ class ECGMonitor {
   }
 
   analyzeBeat() {
-    if (this.ecgAnalysisBuffer.length < 200) {
-      alert('Insufficient data for beat analysis. Please wait for more ECG data.');
+    if (this.ecgAnalysisBuffer.length < 1000) {
+      alert('Insufficient data for beat analysis. Please wait for 10 seconds of ECG data.');
       return;
     }
 
-    // Get the most recent 2 seconds of data for analysis
-    const analysisData = this.ecgAnalysisBuffer.slice(-200);
+    // Get the most recent 10 seconds of data for analysis
+    const analysisData = this.ecgAnalysisBuffer.slice(-1000);
     const beatData = this.extractSingleBeat(analysisData);
 
     if (!beatData) {
@@ -1850,6 +2086,470 @@ class ECGMonitor {
 
     // Ensure within ADC range
     return Math.max(0, Math.min(4095, Math.round(ecgValue)));
+  }
+
+  // Real-time Report Methods
+  showReportModal() {
+    // Check if we have recent data (within last 10 seconds)
+    const timeSinceLastData = Date.now() - this.lastDataReceived;
+
+    if (!this.isConnected || timeSinceLastData > 10000) {
+      alert('Cannot generate report: No ECG data received in the last 10 seconds. Please ensure device is connected and sending data.');
+      return;
+    }
+
+    // Check if we have been collecting data continuously for at least 10 seconds
+    if (this.continuousDataDuration < 10000) {
+      const remainingTime = Math.ceil((10000 - this.continuousDataDuration) / 1000);
+      alert(`Cannot generate report: Need ${remainingTime} more seconds of continuous ECG data. Please wait for the system to collect a full 10-second window.`);
+      return;
+    }
+
+    const modal = document.getElementById('realtimeReportModal');
+    if (modal) {
+      modal.style.display = 'block';
+      // Reset form
+      document.getElementById('reportPatientName').value = '';
+      document.getElementById('reportPatientAge').value = '';
+      document.getElementById('reportPatientGender').value = '';
+      // Hide report content
+      document.querySelector('.report-form').style.display = 'block';
+      document.getElementById('reportContent').style.display = 'none';
+    }
+  }
+
+  hideReportModal() {
+    const modal = document.getElementById('realtimeReportModal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  async generateRealtimeReport() {
+    const patientName = document.getElementById('reportPatientName').value.trim();
+    const patientAge = document.getElementById('reportPatientAge').value;
+    const patientGender = document.getElementById('reportPatientGender').value;
+
+    if (!patientName) {
+      alert('Please enter patient name');
+      return;
+    }
+
+    // Hide form and show report
+    document.querySelector('.report-form').style.display = 'none';
+    document.getElementById('reportContent').style.display = 'block';
+
+    // Generate report content
+    const reportContent = await this.createRealtimeReportContent(patientName, patientAge, patientGender);
+    document.getElementById('reportContent').innerHTML = reportContent;
+  }
+
+  async createRealtimeReportContent(patientName, patientAge, patientGender) {
+    const currentTime = new Date();
+
+    // Calculate statistics based on last 10 seconds of data
+    const tenSecondStats = this.calculateTenSecondStatistics();
+
+    // Capture ECG waveform screenshot
+    const ecgScreenshot = await this.captureECGWaveform();
+    const bpmScreenshot = await this.captureBPMChart();
+
+    return `
+      <div class="realtime-report">
+        <div class="report-header">
+          <h3>Real-Time ECG Analysis Report</h3>
+          <div class="report-info">
+            <div class="patient-info">
+              <h4>Patient Information</h4>
+              <p><strong>Name:</strong> ${patientName}</p>
+              <p><strong>Age:</strong> ${patientAge || 'Not specified'}</p>
+              <p><strong>Gender:</strong> ${patientGender || 'Not specified'}</p>
+            </div>
+            <div class="session-info">
+              <h4>Recording Session</h4>
+              <p><strong>Date:</strong> ${currentTime.toLocaleDateString()}</p>
+              <p><strong>Time:</strong> ${currentTime.toLocaleTimeString()}</p>
+              <p><strong>Device:</strong> ${this.isConnected ? 'Connected' : 'Demo Mode'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="vital-signs">
+          <h4>10-Second Analysis Window</h4>
+          <div class="vitals-grid">
+            <div class="vital-item">
+              <span class="vital-label">Heart Rate (10s avg):</span>
+              <span class="vital-value">${tenSecondStats.heartRate || '--'} BPM</span>
+            </div>
+            <div class="vital-item">
+              <span class="vital-label">Data Points:</span>
+              <span class="vital-value">${tenSecondStats.dataPoints}</span>
+            </div>
+            <div class="vital-item">
+              <span class="vital-label">R Peaks Detected:</span>
+              <span class="vital-value">${tenSecondStats.rPeakCount || '--'}</span>
+            </div>
+            <div class="vital-item">
+              <span class="vital-label">Analysis Duration:</span>
+              <span class="vital-value">${tenSecondStats.duration}s</span>
+            </div>
+            <div class="vital-item">
+              <span class="vital-label">Signal Quality:</span>
+              <span class="vital-value">${tenSecondStats.signalQuality}%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ecg-intervals">
+          <h4>ECG Intervals (Last 10 Seconds)</h4>
+          <div class="intervals-grid">
+            <div class="interval-item">
+              <span class="interval-label">PR Interval:</span>
+              <span class="interval-value">${tenSecondStats.intervals.pr || '--'} ms</span>
+              <span class="interval-status">${this.getIntervalStatus('pr', tenSecondStats.intervals.pr)}</span>
+            </div>
+            <div class="interval-item">
+              <span class="interval-label">QRS Duration:</span>
+              <span class="interval-value">${tenSecondStats.intervals.qrs || '--'} ms</span>
+              <span class="interval-status">${this.getIntervalStatus('qrs', tenSecondStats.intervals.qrs)}</span>
+            </div>
+            <div class="interval-item">
+              <span class="interval-label">QT Interval:</span>
+              <span class="interval-value">${tenSecondStats.intervals.qt || '--'} ms</span>
+              <span class="interval-status">${this.getIntervalStatus('qt', tenSecondStats.intervals.qt)}</span>
+            </div>
+            <div class="interval-item">
+              <span class="interval-label">QTc Interval:</span>
+              <span class="interval-value">${tenSecondStats.intervals.qtc || '--'} ms</span>
+              <span class="interval-status">${this.getIntervalStatus('qtc', tenSecondStats.intervals.qtc)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="waveform-screenshots">
+          <h4>ECG Waveforms (10-Second Window)</h4>
+          <div class="waveform-screenshot">
+            <h5>ECG Signal - Last 10 Seconds</h5>
+            ${ecgScreenshot}
+          </div>
+          <div class="waveform-screenshot">
+            <h5>Heart Rate Trend - Last 10 Seconds</h5>
+            ${bpmScreenshot}
+          </div>
+        </div>
+
+        <div class="morphology-analysis">
+          <h4>Wave Morphology Analysis</h4>
+          <div class="morphology-grid">
+            <div class="morphology-item">
+              <span class="morphology-label">P Wave:</span>
+              <span class="morphology-value">${this.morphology.pWave.detected ? 'Detected' : 'Not detected'}</span>
+              <span class="morphology-details">Amplitude: ${this.morphology.pWave.amplitude} mV</span>
+            </div>
+            <div class="morphology-item">
+              <span class="morphology-label">QRS Complex:</span>
+              <span class="morphology-value">${this.morphology.qrsComplex.detected ? 'Detected' : 'Not detected'}</span>
+              <span class="morphology-details">Amplitude: ${this.morphology.qrsComplex.amplitude} mV</span>
+            </div>
+            <div class="morphology-item">
+              <span class="morphology-label">T Wave:</span>
+              <span class="morphology-value">${this.morphology.tWave.detected ? 'Detected' : 'Not detected'}</span>
+              <span class="morphology-details">Amplitude: ${this.morphology.tWave.amplitude} mV</span>
+            </div>
+            <div class="morphology-item">
+              <span class="morphology-label">Rhythm:</span>
+              <span class="morphology-value">${this.morphology.rhythm.regularity}</span>
+              <span class="morphology-details">${this.morphology.rhythm.classification}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="clinical-interpretation">
+          <h4>Clinical Interpretation</h4>
+          ${this.generateClinicalInterpretation()}
+        </div>
+
+        <div class="report-actions">
+          <button onclick="window.print()" class="btn-primary">Print Report</button>
+          <button onclick="window.ecgMonitor.downloadReportPDF('${patientName}')" class="btn-secondary">Download PDF</button>
+          <button onclick="window.ecgMonitor.hideReportModal()" class="btn-secondary">Close</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async captureECGWaveform() {
+    try {
+      const canvas = document.getElementById('ecgChart');
+      if (canvas && window.html2canvas) {
+        const screenshot = await html2canvas(canvas.parentElement, {
+          backgroundColor: '#ffffff',
+          scale: 2
+        });
+        return `<img src="${screenshot.toDataURL()}" alt="ECG Waveform" />`;
+      }
+    } catch (error) {
+      console.error('Error capturing ECG waveform:', error);
+    }
+    return '<p>ECG waveform capture not available</p>';
+  }
+
+  async captureBPMChart() {
+    try {
+      const canvas = document.getElementById('bpmChart');
+      if (canvas && window.html2canvas) {
+        const screenshot = await html2canvas(canvas.parentElement, {
+          backgroundColor: '#ffffff',
+          scale: 2
+        });
+        return `<img src="${screenshot.toDataURL()}" alt="Heart Rate Trend" />`;
+      }
+    } catch (error) {
+      console.error('Error capturing BPM chart:', error);
+    }
+    return '<p>Heart rate chart capture not available</p>';
+  }
+
+  getIntervalStatus(type, value) {
+    if (!value) return 'Not measured';
+
+    const ranges = {
+      pr: { min: 120, max: 200 },
+      qrs: { min: 80, max: 120 },
+      qt: { min: 350, max: 450 },
+      qtc: { min: 300, max: 440 }
+    };
+
+    const range = ranges[type];
+    if (!range) return 'Unknown';
+
+    if (value < range.min) return 'Short';
+    if (value > range.max) return 'Prolonged';
+    return 'Normal';
+  }
+
+  generateClinicalInterpretation() {
+    let interpretation = '<div class="clinical-notes">';
+
+    // Heart rate interpretation
+    const currentHR = this.bpmStats.current;
+    if (currentHR) {
+      if (currentHR < 60) {
+        interpretation += '<p><strong>Bradycardia:</strong> Heart rate below 60 BPM detected.</p>';
+      } else if (currentHR > 100) {
+        interpretation += '<p><strong>Tachycardia:</strong> Heart rate above 100 BPM detected.</p>';
+      } else {
+        interpretation += '<p><strong>Normal Heart Rate:</strong> Heart rate within normal range (60-100 BPM).</p>';
+      }
+    }
+
+    // Rhythm interpretation
+    if (this.morphology.rhythm.regularity !== 'Unknown') {
+      interpretation += `<p><strong>Rhythm:</strong> ${this.morphology.rhythm.regularity} rhythm detected.</p>`;
+    }
+
+    // Signal quality
+    if (this.signalQuality < 70) {
+      interpretation += '<p><strong>Signal Quality:</strong> Poor signal quality detected. Consider improving electrode contact.</p>';
+    } else if (this.signalQuality > 90) {
+      interpretation += '<p><strong>Signal Quality:</strong> Excellent signal quality achieved.</p>';
+    }
+
+    // Analysis window note
+    interpretation += '<p><strong>Analysis Window:</strong> All calculations and measurements are based on the last 10 seconds of continuous ECG data.</p>';
+
+    // Disclaimer
+    interpretation += `
+      <div class="disclaimer">
+        <p><strong>Disclaimer:</strong> This analysis is for educational purposes only and should not be used for clinical diagnosis.
+        Always consult with a qualified healthcare professional for medical interpretation of ECG results.</p>
+      </div>
+    `;
+
+    interpretation += '</div>';
+    return interpretation;
+  }
+
+  downloadReportPDF(_patientName) {
+    if (window.jsPDF) {
+      // This would implement PDF generation similar to the recording system
+      alert('PDF download functionality would be implemented with jsPDF library');
+    } else {
+      alert('PDF library not loaded');
+    }
+  }
+
+  calculateTenSecondStatistics() {
+    // Get last 10 seconds of ECG data (1000 points at 100Hz)
+    const tenSecondData = this.ecgAnalysisBuffer.slice(-1000);
+
+    if (tenSecondData.length < 1000) {
+      return {
+        dataPoints: tenSecondData.length,
+        duration: tenSecondData.length / 100, // seconds
+        heartRate: this.bpmStats.current || 0,
+        intervals: { ...this.intervals },
+        morphology: { ...this.morphology },
+        signalQuality: this.signalQuality
+      };
+    }
+
+    // Calculate heart rate from 10-second window
+    const values = tenSecondData.map(d => d.value);
+    const timestamps = tenSecondData.map(d => d.timestamp);
+
+    // Find R peaks in 10-second window
+    const rPeaks = this.findRPeaksInWindow(values, timestamps);
+    const avgHeartRate = this.calculateAverageHeartRateFromPeaks(rPeaks);
+
+    // Calculate intervals from the most recent complete beat
+    const recentIntervals = this.calculateIntervalsFromWindow(values, rPeaks);
+
+    return {
+      dataPoints: tenSecondData.length,
+      duration: 10,
+      heartRate: avgHeartRate,
+      intervals: recentIntervals,
+      morphology: { ...this.morphology },
+      signalQuality: this.signalQuality,
+      rPeakCount: rPeaks.length
+    };
+  }
+
+  findRPeaksInWindow(values, timestamps) {
+    const peaks = [];
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+    const threshold = mean + Math.sqrt(variance) * 1.5;
+
+    for (let i = 10; i < values.length - 10; i++) {
+      if (values[i] > threshold) {
+        let isLocalMax = true;
+        for (let j = i - 5; j <= i + 5; j++) {
+          if (j !== i && values[j] >= values[i]) {
+            isLocalMax = false;
+            break;
+          }
+        }
+        if (isLocalMax) {
+          peaks.push({ index: i, timestamp: timestamps[i], value: values[i] });
+          i += 30; // Skip next 300ms to avoid double detection
+        }
+      }
+    }
+
+    return peaks;
+  }
+
+  calculateAverageHeartRateFromPeaks(peaks) {
+    if (peaks.length < 2) return this.bpmStats.current || 0;
+
+    const intervals = [];
+    for (let i = 1; i < peaks.length; i++) {
+      const interval = peaks[i].timestamp - peaks[i-1].timestamp;
+      if (interval >= 300 && interval <= 2000) { // Valid RR intervals
+        intervals.push(interval);
+      }
+    }
+
+    if (intervals.length === 0) return this.bpmStats.current || 0;
+
+    const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    return Math.round(60000 / avgInterval);
+  }
+
+  calculateIntervalsFromWindow(values, peaks) {
+    if (peaks.length === 0) return { ...this.intervals };
+
+    // Use the most recent R peak for interval calculation
+    const lastPeak = peaks[peaks.length - 1];
+    const rIndex = lastPeak.index;
+
+    // Calculate intervals similar to existing method but from 10-second window
+    const pr = this.calculatePRFromWindow(values, rIndex);
+    const qrs = this.calculateQRSFromWindow(values, rIndex);
+    const qt = this.calculateQTFromWindow(values, rIndex);
+    const qtc = qt && this.bpmStats.current ?
+      Math.round(qt / Math.sqrt((60 / this.bpmStats.current))) : null;
+
+    return { pr, qrs, qt, qtc, rr: null };
+  }
+
+  calculatePRFromWindow(values, rIndex) {
+    // Similar to existing PR calculation but adapted for window
+    const searchStart = Math.max(0, rIndex - 20);
+    const searchEnd = Math.max(0, rIndex - 8);
+
+    if (searchEnd <= searchStart) return this.intervals.pr;
+
+    // Find P wave in search region
+    const baseline = values.slice(0, 50).reduce((a, b) => a + b, 0) / 50;
+    let maxPAmplitude = 0;
+    let pIndex = -1;
+
+    for (let i = searchStart; i < searchEnd; i++) {
+      const amplitude = Math.abs(values[i] - baseline);
+      if (amplitude > maxPAmplitude && amplitude > 50) {
+        maxPAmplitude = amplitude;
+        pIndex = i;
+      }
+    }
+
+    if (pIndex === -1) return this.intervals.pr;
+
+    const prInterval = (rIndex - pIndex - 3) * 10; // Convert to ms
+    return (prInterval >= 80 && prInterval <= 300) ? Math.round(prInterval) : this.intervals.pr;
+  }
+
+  calculateQRSFromWindow(values, rIndex) {
+    // Similar to existing QRS calculation
+    const qrsStart = Math.max(0, rIndex - 5);
+    const qrsEnd = Math.min(values.length - 1, rIndex + 8);
+
+    const baseline = values.slice(0, 50).reduce((a, b) => a + b, 0) / 50;
+    const threshold = 30;
+
+    let qrsOnset = rIndex;
+    for (let i = rIndex - 1; i >= qrsStart; i--) {
+      if (Math.abs(values[i] - baseline) < threshold) {
+        qrsOnset = i;
+        break;
+      }
+    }
+
+    let qrsOffset = rIndex;
+    for (let i = rIndex + 1; i <= qrsEnd; i++) {
+      if (Math.abs(values[i] - baseline) < threshold) {
+        qrsOffset = i;
+        break;
+      }
+    }
+
+    const qrsDuration = (qrsOffset - qrsOnset) * 10;
+    return (qrsDuration >= 40 && qrsDuration <= 200) ? Math.round(qrsDuration) : this.intervals.qrs;
+  }
+
+  calculateQTFromWindow(values, rIndex) {
+    // Similar to existing QT calculation
+    const searchStart = Math.min(values.length - 1, rIndex + 10);
+    const searchEnd = Math.min(values.length - 1, rIndex + 50);
+
+    if (searchEnd <= searchStart) return this.intervals.qt;
+
+    const baseline = values.slice(0, 50).reduce((a, b) => a + b, 0) / 50;
+
+    let tWaveEnd = -1;
+    for (let i = searchEnd; i >= searchStart; i--) {
+      if (Math.abs(values[i] - baseline) < 30) {
+        tWaveEnd = i;
+        break;
+      }
+    }
+
+    if (tWaveEnd === -1) return this.intervals.qt;
+
+    const qtInterval = (tWaveEnd - rIndex + 5) * 10;
+    return (qtInterval >= 250 && qtInterval <= 600) ? Math.round(qtInterval) : this.intervals.qt;
   }
 }
 

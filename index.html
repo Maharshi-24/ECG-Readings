@@ -13,15 +13,26 @@
       <p class="subtitle">Real-time ECG monitoring with heart rate analysis</p>
     </header>
 
+    <!-- Navigation -->
+    <nav class="navigation">
+      <button id="realTimeBtn" class="nav-btn active">Real-Time Monitor</button>
+      <button id="recordingBtn" class="nav-btn">Multi-Lead Recording</button>
+    </nav>
+
     <!-- Connection Section -->
     <section class="connection-section">
       <div class="input-group">
         <label for="deviceIdInput">Device ID:</label>
-        <input type="text" id="deviceIdInput" placeholder="Enter device ID (e.g. ECG1)" value="ECG1">
+        <input type="text" id="deviceIdInput" placeholder="Enter device ID (e.g. P3)" value="P3">
         <button id="connectBtn" class="btn-primary">Connect</button>
         <button id="disconnectBtn" class="btn-secondary" disabled>Disconnect</button>
+        <button id="debugToggleBtn" class="btn-small">Debug</button>
+        <button id="testConnectionBtn" class="btn-small">Test Connection</button>
       </div>
       <div id="status" class="status">Status: Not connected</div>
+      <div id="debugInfo" class="debug-info" style="display: none;">
+        <small>Debug: <span id="debugText"></span></small>
+      </div>
     </section>
 
     <!-- Data Display Section -->
@@ -90,6 +101,7 @@
             <button id="pauseBtn" class="btn-small">Pause</button>
             <button id="clearBtn" class="btn-small">Clear</button>
             <button id="analyzeBtn" class="btn-small">Analyze Beat</button>
+            <button id="generateRealtimeReportBtn" class="btn-small btn-report">Generate Report</button>
             <div class="chart-info">
               <span class="sweep-speed">Sweep: 25mm/s</span>
               <span class="amplitude-scale">Scale: 10mm/mV</span>
@@ -185,9 +197,49 @@
     </section>
   </div>
 
+  <!-- Real-time Report Modal -->
+  <div id="realtimeReportModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Real-Time ECG Analysis Report</h2>
+        <span class="close-modal" id="closeReportModal">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="report-form">
+          <div class="form-group">
+            <label for="reportPatientName">Patient Name:</label>
+            <input type="text" id="reportPatientName" placeholder="Enter patient name">
+          </div>
+          <div class="form-group">
+            <label for="reportPatientAge">Age:</label>
+            <input type="number" id="reportPatientAge" placeholder="Age" min="1" max="120">
+          </div>
+          <div class="form-group">
+            <label for="reportPatientGender">Gender:</label>
+            <select id="reportPatientGender">
+              <option value="">Select Gender</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button id="generateReportBtn" class="btn-primary">Generate Report</button>
+            <button id="cancelReportBtn" class="btn-secondary">Cancel</button>
+          </div>
+        </div>
+        <div id="reportContent" class="report-display" style="display: none;">
+          <!-- Generated report will be inserted here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
