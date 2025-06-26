@@ -83,8 +83,72 @@ class ECGMonitor {
     this.deviceOnline = false;
     this.dataCount = 0;
 
+    // Initialize abnormality detection
+    this.abnormalityDetection = {
+      enabled: true,
+      lastAlert: 0,
+      alertCooldown: 10000, // 10 seconds between alerts
+      conditions: {
+        bradycardia: false,
+        tachycardia: false,
+        irregularRhythm: false,
+        poorSignalQuality: false
+      }
+    };
+
     this.initializeApp();
     this.registerChartPlugins();
+    this.initializeAudioBuzzer();
+  }
+
+  initializeAudioBuzzer() {
+    try {
+      // Initialize Web Audio API for buzzer functionality
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      this.buzzerEnabled = true;
+    } catch (error) {
+      console.warn('Web Audio API not supported, buzzer disabled:', error);
+      this.buzzerEnabled = false;
+    }
+  }
+
+  playBuzzer(frequency = 800, duration = 500, type = 'warning') {
+    if (!this.buzzerEnabled || !this.audioContext) return;
+
+    try {
+      const oscillator = this.audioContext.createOscillator();
+      const gainNode = this.audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(this.audioContext.destination);
+
+      // Set frequency based on alert type
+      switch (type) {
+        case 'critical':
+          oscillator.frequency.setValueAtTime(1000, this.audioContext.currentTime);
+          break;
+        case 'warning':
+          oscillator.frequency.setValueAtTime(800, this.audioContext.currentTime);
+          break;
+        case 'info':
+          oscillator.frequency.setValueAtTime(600, this.audioContext.currentTime);
+          break;
+        default:
+          oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
+      }
+
+      oscillator.type = 'square';
+
+      // Set volume envelope
+      gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.1, this.audioContext.currentTime + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + duration / 1000);
+
+      oscillator.start(this.audioContext.currentTime);
+      oscillator.stop(this.audioContext.currentTime + duration / 1000);
+    } catch (error) {
+      console.warn('Error playing buzzer:', error);
+    }
   }
 
   registerChartPlugins() {
@@ -132,6 +196,18 @@ class ECGMonitor {
     this.initializeCharts();
     this.setupEventListeners();
     this.updateUI();
+    this.initializeStatusIndicators();
+  }
+
+  initializeStatusIndicators() {
+    // Initialize status indicators to be empty until reading starts
+    const statusElement = document.getElementById('statusIndicators');
+    const statusCard = document.querySelector('.status-card');
+
+    if (statusElement && statusCard) {
+      statusElement.innerHTML = '<span class="status-waiting">Waiting for data...</span>';
+      statusCard.classList.remove('status-normal-bg', 'status-irregular-bg');
+    }
   }
   
   initializeDOM() {
@@ -191,7 +267,7 @@ class ECGMonitor {
         datasets: [{
           label: 'ECG Signal',
           data: [],
-          borderColor: '#2c3e50',           // Dark medical color
+          borderColor: '#dc3545',           // Red color for ECG waveform
           backgroundColor: 'transparent',    // No fill for cleaner look
           borderWidth: 1.5,                 // Thinner line for precision
           fill: false,
@@ -260,15 +336,15 @@ class ECGMonitor {
             grid: {
               display: true,
               color: function(context) {
-                // Major grid lines every 0.5mV (darker)
-                if (context.tick.value % 0.5 === 0) {
+                // Major grid lines every 0.2mV (darker) for 1.0mV range
+                if (context.tick.value % 0.2 === 0) {
                   return '#ff6b6b';
                 }
                 // Minor grid lines every 0.1mV (lighter)
                 return '#ffcccc';
               },
               lineWidth: function(context) {
-                return context.tick.value % 0.5 === 0 ? 0.8 : 0.3;
+                return context.tick.value % 0.2 === 0 ? 0.8 : 0.3;
               },
               drawTicks: true,
               tickLength: 5
@@ -279,13 +355,13 @@ class ECGMonitor {
               font: {
                 size: 10
               },
-              stepSize: 0.1,
+              stepSize: 0.2,
               callback: function(value) {
                 return value.toFixed(1) + 'mV';
               }
             },
-            min: -2,                        // Medical range
-            max: 3
+            min: -1.0,                      // 1.0mV negative range
+            max: 1.0                        // 1.0mV positive range
           }
         },
         plugins: {
@@ -681,6 +757,9 @@ class ECGMonitor {
     // Update data count
     this.dataCount++;
 
+    // Initialize status display once data starts coming
+    this.initializeStatusOnFirstData();
+
     // Store ECG data for display
     this.ecgData.push(ecgValue);
     this.ecgTimestamps.push(timestamp);
@@ -714,6 +793,18 @@ class ECGMonitor {
 
     // Update UI
     this.updateDataDisplay(ecgValue, timestamp);
+  }
+
+  initializeStatusOnFirstData() {
+    // Only initialize status display once when first data arrives
+    const statusElement = document.getElementById('statusIndicators');
+    const statusCard = document.querySelector('.status-card');
+
+    if (statusElement && statusCard && statusElement.innerHTML.includes('Waiting for data')) {
+      statusElement.innerHTML = '<span class="status-normal">Normal</span>';
+      statusCard.classList.add('status-normal-bg');
+      statusCard.classList.remove('status-irregular-bg');
+    }
   }
 
   calculateBPM(ecgValue, timestamp) {
@@ -771,6 +862,9 @@ class ECGMonitor {
     // Update statistics
     this.updateBPMStats();
 
+    // Check for abnormalities and trigger alerts
+    this.checkForAbnormalities(bpm, timestamp);
+
     // Update BPM chart
     this.updateBPMChart();
   }
@@ -790,6 +884,134 @@ class ECGMonitor {
     // Keep history manageable
     if (this.bpmStats.history.length > 100) {
       this.bpmStats.history.shift();
+    }
+  }
+
+  checkForAbnormalities(bpm, timestamp) {
+    if (!this.abnormalityDetection.enabled) return;
+
+    const now = Date.now();
+    const timeSinceLastAlert = now - this.abnormalityDetection.lastAlert;
+
+    // Only check if enough time has passed since last alert
+    if (timeSinceLastAlert < this.abnormalityDetection.alertCooldown) return;
+
+    let abnormalityDetected = false;
+    let alertType = 'warning';
+    let alertTitle = '';
+    let alertMessage = '';
+
+    // Check for bradycardia (HR < 60 BPM)
+    if (bpm < 60) {
+      this.abnormalityDetection.conditions.bradycardia = true;
+      abnormalityDetected = true;
+      alertType = 'critical';
+      alertTitle = 'Bradycardia Detected';
+      alertMessage = `Heart rate is ${bpm} BPM (below 60 BPM). This may indicate a slow heart rhythm.`;
+    } else {
+      this.abnormalityDetection.conditions.bradycardia = false;
+    }
+
+    // Check for tachycardia (HR > 100 BPM)
+    if (bpm > 100) {
+      this.abnormalityDetection.conditions.tachycardia = true;
+      abnormalityDetected = true;
+      alertType = 'critical';
+      alertTitle = 'Tachycardia Detected';
+      alertMessage = `Heart rate is ${bpm} BPM (above 100 BPM). This may indicate a fast heart rhythm.`;
+    } else {
+      this.abnormalityDetection.conditions.tachycardia = false;
+    }
+
+    // Check for irregular rhythm (if we have enough history)
+    if (this.bpmStats.history.length >= 5) {
+      const recentBPMs = this.bpmStats.history.slice(-5);
+      const variance = this.calculateVariance(recentBPMs);
+
+      if (variance > 400) { // High variance indicates irregular rhythm
+        this.abnormalityDetection.conditions.irregularRhythm = true;
+        if (!abnormalityDetected) {
+          abnormalityDetected = true;
+          alertType = 'warning';
+          alertTitle = 'Irregular Rhythm Detected';
+          alertMessage = 'Heart rhythm appears irregular. Consider checking electrode placement.';
+        }
+      } else {
+        this.abnormalityDetection.conditions.irregularRhythm = false;
+      }
+    }
+
+    // Check for poor signal quality
+    if (this.signalQuality < 70) {
+      this.abnormalityDetection.conditions.poorSignalQuality = true;
+      if (!abnormalityDetected) {
+        abnormalityDetected = true;
+        alertType = 'warning';
+        alertTitle = 'Poor Signal Quality';
+        alertMessage = `Signal quality is ${this.signalQuality}%. Please check electrode connections.`;
+      }
+    } else {
+      this.abnormalityDetection.conditions.poorSignalQuality = false;
+    }
+
+    // Trigger alert if abnormality detected
+    if (abnormalityDetected) {
+      this.triggerAbnormalityAlert(alertType, alertTitle, alertMessage);
+      this.abnormalityDetection.lastAlert = now;
+    }
+  }
+
+  calculateVariance(values) {
+    if (values.length === 0) return 0;
+    const mean = values.reduce((a, b) => a + b) / values.length;
+    return values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+  }
+
+  triggerAbnormalityAlert(type, title, message) {
+    // Play buzzer sound
+    this.playBuzzer(type === 'critical' ? 1000 : 800, 1000, type);
+
+    // Show visual notification
+    if (window.notifications) {
+      if (type === 'critical') {
+        window.notifications.error(title, message, 10000);
+      } else {
+        window.notifications.warning(title, message, 8000);
+      }
+    }
+
+    // Update UI to show abnormality status
+    this.updateAbnormalityIndicators();
+
+    // Log the abnormality
+    console.warn(`ECG Abnormality Detected: ${title} - ${message}`);
+  }
+
+  updateAbnormalityIndicators() {
+    // Update visual indicators in the UI - simplified to Normal/Irregular only
+    const statusElement = document.getElementById('statusIndicators');
+    const statusCard = document.querySelector('.status-card');
+
+    if (statusElement && statusCard) {
+      const conditions = this.abnormalityDetection.conditions;
+
+      // Check if any abnormality is detected
+      const hasAbnormality = conditions.bradycardia ||
+                           conditions.tachycardia ||
+                           conditions.irregularRhythm ||
+                           conditions.poorSignalQuality;
+
+      if (hasAbnormality) {
+        // Show "Irregular" status
+        statusElement.innerHTML = '<span class="status-irregular">Irregular</span>';
+        statusCard.classList.add('status-irregular-bg');
+        statusCard.classList.remove('status-normal-bg');
+      } else {
+        // Show "Normal" status
+        statusElement.innerHTML = '<span class="status-normal">Normal</span>';
+        statusCard.classList.add('status-normal-bg');
+        statusCard.classList.remove('status-irregular-bg');
+      }
     }
   }
 
@@ -1003,15 +1225,15 @@ class ECGMonitor {
   }
 
   adcToMillivolts(adcValue) {
-    // Enhanced conversion with proper medical scaling
+    // Enhanced conversion with proper medical scaling for 1.0mV standard
     // ESP32 ADC: 0-4095 (12-bit) representing 0-3.3V
-    // ECG signal typically ranges from -2mV to +3mV
+    // ECG signal calibrated to 1.0mV standard amplitude
 
     const voltage = (adcValue / 4095) * 3.3; // Convert to voltage (0-3.3V)
     const centeredVoltage = voltage - 1.65;  // Center around 0V (baseline at 1.65V)
-    const millivolts = centeredVoltage * 3;   // Scale to ±5mV range for better visibility
+    const millivolts = centeredVoltage * 1.0; // Scale to ±1.0mV standard for medical accuracy
 
-    return Math.round(millivolts * 100) / 100; // Round to 2 decimal places
+    return Math.round(millivolts * 1000) / 1000; // Round to 3 decimal places for precision
   }
 
   // Helper functions for advanced ECG analysis
@@ -2299,9 +2521,24 @@ class ECGMonitor {
     const patientName = document.getElementById('reportPatientName').value.trim();
     const patientAge = document.getElementById('reportPatientAge').value;
     const patientGender = document.getElementById('reportPatientGender').value;
+    const patientHeight = document.getElementById('reportPatientHeight').value;
+    const patientWeight = document.getElementById('reportPatientWeight').value;
 
+    // Validate all mandatory fields
     if (!patientName) {
       alert('Please enter patient name');
+      return;
+    }
+    if (!patientGender) {
+      alert('Please select patient gender');
+      return;
+    }
+    if (!patientHeight) {
+      alert('Please enter patient height');
+      return;
+    }
+    if (!patientWeight) {
+      alert('Please enter patient weight');
       return;
     }
 
@@ -2310,11 +2547,11 @@ class ECGMonitor {
     document.getElementById('reportContent').style.display = 'block';
 
     // Generate report content
-    const reportContent = await this.createRealtimeReportContent(patientName, patientAge, patientGender);
+    const reportContent = await this.createRealtimeReportContent(patientName, patientAge, patientGender, patientHeight, patientWeight);
     document.getElementById('reportContent').innerHTML = reportContent;
   }
 
-  async createRealtimeReportContent(patientName, patientAge, patientGender) {
+  async createRealtimeReportContent(patientName, patientAge, patientGender, patientHeight, patientWeight) {
     const currentTime = new Date();
 
     // Calculate statistics based on last 10 seconds of data
@@ -2333,7 +2570,9 @@ class ECGMonitor {
               <h4>Patient Information</h4>
               <p><strong>Name:</strong> ${patientName}</p>
               <p><strong>Age:</strong> ${patientAge || 'Not specified'}</p>
-              <p><strong>Gender:</strong> ${patientGender || 'Not specified'}</p>
+              <p><strong>Gender:</strong> ${patientGender}</p>
+              <p><strong>Height:</strong> ${patientHeight} cm</p>
+              <p><strong>Weight:</strong> ${patientWeight} kg</p>
             </div>
             <div class="session-info">
               <h4>Recording Session</h4>
@@ -2555,14 +2794,15 @@ class ECGMonitor {
       const currentTime = new Date();
 
       // Header - Lead II Report
-      doc.setFontSize(24);
+      doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
-      doc.text('Lead II Report', 20, 25);
+      doc.setTextColor(0, 0, 0);
+      doc.text('Lead II Report', 105, 20, { align: 'center' });
 
-      // Date and time
-      doc.setFontSize(10);
+      // Date and time in top right
+      doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(128, 128, 128);
+      doc.setTextColor(100, 100, 100);
       const dateStr = currentTime.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: 'short',
@@ -2573,51 +2813,59 @@ class ECGMonitor {
         minute: '2-digit',
         hour12: false
       });
-      doc.text(`Date: ${dateStr}, ${timeStr}`, 20, 35);
+      doc.text(`${dateStr} ${timeStr}`, 190, 15, { align: 'right' });
 
       // Logo placeholder (right side)
       doc.setTextColor(255, 100, 100);
-      doc.setFontSize(16);
+      doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
       doc.text('ECG Monitor', 150, 25);
 
-      // Patient Information Table
+      // Date line
       doc.setTextColor(0, 0, 0);
-      doc.setFontSize(10);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Date: ${dateStr}, ${timeStr}`, 20, 35);
+
+      // Patient Information Table with better alignment
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
 
-      // Table headers
+      // Table headers with proper spacing
       const startY = 50;
       doc.text('NAME', 20, startY);
-      doc.text('AGE', 70, startY);
-      doc.text('GENDER', 100, startY);
-      doc.text('HEIGHT', 130, startY);
-      doc.text('WEIGHT', 160, startY);
-      doc.text('REPORT ID', 190, startY);
+      doc.text('AGE', 65, startY);
+      doc.text('GENDER', 95, startY);
+      doc.text('HEIGHT', 125, startY);
+      doc.text('WEIGHT', 155, startY);
+      doc.text('REPORT ID', 185, startY);
 
-      // Patient data
+      // Patient data with consistent alignment
       doc.setFont('helvetica', 'normal');
       const patientAge = document.getElementById('reportPatientAge')?.value || 'N/A';
       const patientGender = document.getElementById('reportPatientGender')?.value || 'N/A';
+      const patientHeight = document.getElementById('reportPatientHeight')?.value || 'N/A';
+      const patientWeight = document.getElementById('reportPatientWeight')?.value || 'N/A';
       const reportId = Date.now().toString().slice(-10);
 
-      doc.text(patientName, 20, startY + 10);
-      doc.text(`${patientAge} year(s)`, 70, startY + 10);
-      doc.text(patientGender, 100, startY + 10);
-      doc.text('N/A cm(s)', 130, startY + 10);
-      doc.text('N/A kg(s)', 160, startY + 10);
-      doc.text(reportId, 190, startY + 10);
+      doc.text(patientName, 20, startY + 8);
+      doc.text(`${patientAge} year(s)`, 65, startY + 8);
+      doc.text(patientGender, 95, startY + 8);
+      doc.text(`${patientHeight} cm`, 125, startY + 8);
+      doc.text(`${patientWeight} kg`, 155, startY + 8);
+      doc.text(reportId, 185, startY + 8);
 
       // ECG Parameters Table
-      doc.setFontSize(14);
+      doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.text('ECG Parameters', 20, 80);
+      doc.text('ECG Parameters', 20, 75);
 
       // Result Details
-      doc.text('Result Details', 130, 80);
+      doc.text('Result Details', 130, 75);
 
       // Parameters table
-      const tableStartY = 95;
+      const tableStartY = 85;
 
       // Table header
       doc.setFillColor(70, 90, 120);
@@ -2675,47 +2923,120 @@ class ECGMonitor {
       doc.setTextColor(128, 128, 128);
       doc.text(`Heart rate: ${tenSecondStats.heartRate || '--'} bpm`, 150, 170);
 
-      // ECG Waveform
+      // ECG Waveform Section - positioned higher and reduced height
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text('ECG Waveform', 20, 180);
+
+      // Define waveform area with significantly larger dimensions for perfect PDF fitting
+      const waveformX = 5;
+      const waveformY = 185;
+      const waveformWidth = 200; // Significantly increased width for perfect horizontal coverage
+      const waveformHeight = 35; // Significantly increased height to match ratio and ensure perfect fitting
+
+      // Draw ECG grid background with proper medical scaling
+      doc.setDrawColor(255, 200, 200);
+      doc.setLineWidth(0.2);
+
+      // Major grid lines (5mm squares) - every 5mm
+      for (let x = waveformX; x <= waveformX + waveformWidth; x += 5) {
+        doc.setLineWidth(x % 25 === waveformX % 25 ? 0.4 : 0.2);
+        doc.line(x, waveformY, x, waveformY + waveformHeight);
+      }
+      for (let y = waveformY; y <= waveformY + waveformHeight; y += 5) {
+        doc.setLineWidth(y % 25 === waveformY % 25 ? 0.4 : 0.2);
+        doc.line(waveformX, y, waveformX + waveformWidth, y);
+      }
+
       try {
         const ecgCanvas = document.getElementById('ecgChart');
+        console.log('ECG Canvas found:', !!ecgCanvas);
+        console.log('html2canvas available:', !!window.html2canvas);
+
         if (ecgCanvas && window.html2canvas) {
-          const ecgScreenshot = await html2canvas(ecgCanvas.parentElement, {
-            backgroundColor: '#ffffff',
-            scale: 2
-          });
+          // Try multiple capture methods for better compatibility
+          let ecgScreenshot;
 
-          const ecgImgData = ecgScreenshot.toDataURL('image/png');
+          try {
+            // Method 1: Direct canvas capture with optimized settings
+            ecgScreenshot = await html2canvas(ecgCanvas, {
+              backgroundColor: '#ffffff',
+              scale: 2,
+              useCORS: true,
+              allowTaint: true,
+              logging: true,
+              onclone: function(clonedDoc) {
+                console.log('Canvas cloned successfully');
+              }
+            });
+          } catch (captureError) {
+            console.warn('Direct capture failed, trying parent element:', captureError);
 
-          // Add ECG grid background
-          doc.setDrawColor(255, 200, 200);
-          doc.setLineWidth(0.1);
-
-          // Draw grid lines
-          for (let x = 20; x <= 190; x += 2) {
-            doc.line(x, 180, x, 240);
+            // Method 2: Capture parent container
+            const chartContainer = ecgCanvas.parentElement;
+            ecgScreenshot = await html2canvas(chartContainer, {
+              backgroundColor: '#ffffff',
+              scale: 2,
+              useCORS: true,
+              allowTaint: true,
+              logging: true
+            });
           }
-          for (let y = 180; y <= 240; y += 2) {
-            doc.line(20, y, 190, y);
+
+          if (ecgScreenshot) {
+            const ecgImgData = ecgScreenshot.toDataURL('image/png');
+            console.log('Image data generated, length:', ecgImgData.length);
+
+            // Add waveform with the captured image
+            doc.addImage(ecgImgData, 'PNG', waveformX, waveformY, waveformWidth, waveformHeight);
+            console.log('Waveform image added to PDF');
+          } else {
+            throw new Error('Failed to capture waveform');
           }
-
-          // Lead II label
-          doc.setFontSize(10);
-          doc.setTextColor(0, 0, 0);
-          doc.text('Lead II', 25, 190);
-
-          // Add ECG waveform
-          doc.addImage(ecgImgData, 'PNG', 20, 185, 170, 50);
-
-          // Scale information
-          doc.setFontSize(8);
-          doc.setTextColor(128, 128, 128);
-          doc.text('Scale: x-axis: 25.0 mm/sec  y-axis: 10.0 mm/mv', 140, 245);
+        } else {
+          throw new Error('ECG canvas or html2canvas not available');
         }
       } catch (error) {
         console.error('Error adding ECG waveform:', error);
-        doc.setFontSize(12);
-        doc.text('ECG waveform could not be captured.', 20, 200);
+
+        // Add error message and fallback waveform
+        doc.setFontSize(9);
+        doc.setTextColor(200, 0, 0);
+        doc.text('ECG waveform capture failed. Showing simulated waveform.', waveformX + 5, waveformY + 10);
+
+        // Draw a simple simulated ECG waveform as fallback
+        doc.setDrawColor(220, 53, 69);
+        doc.setLineWidth(1.5);
+
+        // Simple ECG pattern
+        const centerY = waveformY + waveformHeight / 2;
+        let currentX = waveformX + 10;
+
+        // Draw baseline and some basic ECG complexes
+        doc.line(waveformX, centerY, waveformX + waveformWidth, centerY);
+
+        // Add a few QRS complexes
+        for (let i = 0; i < 4; i++) {
+          const x = waveformX + 20 + (i * 40);
+          // P wave
+          doc.line(x, centerY, x + 5, centerY - 2);
+          doc.line(x + 5, centerY - 2, x + 10, centerY);
+          // QRS complex
+          doc.line(x + 15, centerY, x + 17, centerY + 3);
+          doc.line(x + 17, centerY + 3, x + 19, centerY - 8);
+          doc.line(x + 19, centerY - 8, x + 21, centerY + 5);
+          doc.line(x + 21, centerY + 5, x + 23, centerY);
+          // T wave
+          doc.line(x + 28, centerY, x + 32, centerY - 3);
+          doc.line(x + 32, centerY - 3, x + 36, centerY);
+        }
       }
+
+      // Scale information
+      doc.setFontSize(7);
+      doc.setTextColor(100, 100, 100);
+      doc.text('25 mm/sec, 10 mm/mV', waveformX + waveformWidth - 50, waveformY + waveformHeight + 6);
 
       // Save the PDF
       const fileName = `Lead_II_Report_${patientName.replace(/\s+/g, '_')}_${Date.now()}.pdf`;

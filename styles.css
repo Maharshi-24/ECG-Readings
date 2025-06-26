@@ -294,7 +294,7 @@ button:disabled {
 
 .chart-area {
   position: relative;
-  height: 400px;
+  height: 200px; /* Reduced from 400px to 200px (half size) */
   margin-top: 15px;
   background: #fff;
   border-radius: 8px;
@@ -371,6 +371,79 @@ button:disabled {
 #bpmChart, #beatChart {
   width: 100% !important;
   height: 100% !important;
+}
+
+/* Status Indicators integrated with data cards */
+.status-card {
+  min-height: 120px;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+  border: 2px solid transparent;
+}
+
+/* Container background colors based on status */
+.status-card.status-normal-bg {
+  background: linear-gradient(135deg, #28a745, #20c997) !important;
+  border-color: #1e7e34;
+  color: white;
+}
+
+.status-card.status-irregular-bg {
+  background: linear-gradient(135deg, #dc3545, #e74c3c) !important;
+  border-color: #c82333;
+  color: white;
+  animation: pulse-bg 2s infinite;
+}
+
+/* Override text colors for status card when colored */
+.status-card.status-normal-bg .data-label,
+.status-card.status-normal-bg .data-value,
+.status-card.status-irregular-bg .data-label,
+.status-card.status-irregular-bg .data-value {
+  color: white !important;
+}
+
+.status-indicators {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  min-height: 60px;
+  justify-content: center;
+}
+
+/* Simplified status display */
+.status-waiting {
+  font-weight: bold;
+  font-size: 1.0rem;
+  color: #666;
+  font-style: italic;
+}
+
+.status-normal {
+  font-weight: bold;
+  font-size: 1.2rem;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+.status-irregular {
+  font-weight: bold;
+  font-size: 1.2rem;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  animation: pulse-text 1.5s infinite;
+}
+
+@keyframes pulse-bg {
+  0% { opacity: 1; }
+  50% { opacity: 0.9; }
+  100% { opacity: 1; }
+}
+
+@keyframes pulse-text {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
 }
 
 /* ECG Intervals Section */

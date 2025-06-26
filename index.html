@@ -58,8 +58,16 @@
           <div class="data-value" id="timestamp">--:--:--</div>
           <div class="data-unit">Time</div>
         </div>
+        <div class="data-card status-card">
+          <div class="data-label">ECG Status</div>
+          <div class="status-indicators" id="statusIndicators">
+            <!-- Abnormality indicators will be shown here when detected -->
+          </div>
+        </div>
       </div>
     </section>
+
+
 
     <!-- ECG Intervals Section -->
     <section class="intervals-section">
@@ -218,13 +226,21 @@
             <input type="number" id="reportPatientAge" placeholder="Age" min="1" max="120">
           </div>
           <div class="form-group">
-            <label for="reportPatientGender">Gender:</label>
-            <select id="reportPatientGender">
+            <label for="reportPatientGender">Gender: *</label>
+            <select id="reportPatientGender" required>
               <option value="">Select Gender</option>
               <option value="male">Male</option>
               <option value="female">Female</option>
               <option value="other">Other</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label for="reportPatientHeight">Height (cm): *</label>
+            <input type="number" id="reportPatientHeight" placeholder="Height in cm" min="50" max="250" required>
+          </div>
+          <div class="form-group">
+            <label for="reportPatientWeight">Weight (kg): *</label>
+            <input type="number" id="reportPatientWeight" placeholder="Weight in kg" min="10" max="300" required>
           </div>
           <div class="form-actions">
             <button id="generateReportBtn" class="btn-primary">Generate Report</button>

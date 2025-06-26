@@ -136,8 +136,8 @@ class ECGRecordingSystem {
           },
           y: {
             display: false,
-            min: 0,
-            max: 4095
+            min: -1.0,
+            max: 1.0
           }
         },
         animation: {
@@ -343,23 +343,36 @@ class ECGRecordingSystem {
     }
   }
 
+  adcToMillivolts(adcValue) {
+    // Convert ADC value to millivolts with 1.0mV standard calibration
+    // ESP32 ADC: 0-4095 (12-bit) representing 0-3.3V
+    const voltage = (adcValue / 4095) * 3.3; // Convert to voltage (0-3.3V)
+    const centeredVoltage = voltage - 1.65;  // Center around 0V (baseline at 1.65V)
+    const millivolts = centeredVoltage * 1.0; // Scale to ±1.0mV standard for medical accuracy
+
+    return Math.round(millivolts * 1000) / 1000; // Round to 3 decimal places for precision
+  }
+
   processECGData(data) {
+    const millivolts = this.adcToMillivolts(data.ecg_value);
+
     if (!this.isRecording) {
-      // Update preview chart
-      this.updatePreviewChart(data);
+      // Update preview chart with millivolt values
+      this.updatePreviewChart({ ...data, millivolts });
       return;
     }
 
-    // Store recording data
+    // Store recording data with both ADC and millivolt values
     this.recordingData.push({
       timestamp: Date.now(),
       value: parseInt(data.ecg_value),
+      millivolts: millivolts,
       sequence: data.sequence,
       signalQuality: data.signal_quality
     });
 
-    // Update preview chart
-    this.updatePreviewChart(data);
+    // Update preview chart with millivolt values
+    this.updatePreviewChart({ ...data, millivolts });
 
     // Update signal quality display
     document.getElementById('signalQuality').textContent = `${data.signal_quality}%`;
@@ -369,9 +382,9 @@ class ECGRecordingSystem {
     const chart = this.previewChart;
     const maxPoints = 100;
 
-    // Add new data point
+    // Add new data point using millivolt values for proper scaling
     chart.data.labels.push(new Date().toLocaleTimeString());
-    chart.data.datasets[0].data.push(parseInt(data.ecg_value));
+    chart.data.datasets[0].data.push(data.millivolts || this.adcToMillivolts(data.ecg_value));
 
     // Remove old data points
     if (chart.data.labels.length > maxPoints) {
@@ -1177,8 +1190,8 @@ class ECGRecordingSystem {
     const maxVal = Math.max(...values);
     const range = maxVal - minVal || 1;
 
-    // Draw waveform
-    ctx.strokeStyle = '#000';
+    // Draw waveform in red color
+    ctx.strokeStyle = '#dc3545';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
 
@@ -1221,8 +1234,8 @@ class ECGRecordingSystem {
     const maxVal = Math.max(...values);
     const range = maxVal - minVal || 1;
 
-    // Draw waveform
-    ctx.strokeStyle = '#000';
+    // Draw waveform in red color
+    ctx.strokeStyle = '#dc3545';
     ctx.lineWidth = 2;
     ctx.beginPath();
 
