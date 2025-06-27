@@ -27,9 +27,7 @@ class ECGMonitor {
     
     // Chart configuration
     this.maxECGPoints = 1000;     // Show last 10 seconds (1000 points at 100Hz)
-    this.maxBPMPoints = 100;      // Show last 10 seconds (10 points per second)
     this.ecgChart = null;         // Chart.js instance for ECG waveform
-    this.bpmChart = null;         // Chart.js instance for BPM trend
     this.beatChart = null;        // Chart.js instance for beat analysis
 
     // ECG Display enhancement
@@ -401,75 +399,6 @@ class ECGMonitor {
           point: {
             radius: 0,
             hoverRadius: 3
-          }
-        }
-      }
-    });
-    
-    // Initialize BPM Chart
-    const bpmCtx = document.getElementById('bpmChart').getContext('2d');
-    this.bpmChart = new Chart(bpmCtx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Heart Rate (BPM)',
-          data: [],
-          borderColor: '#e74c3c',
-          backgroundColor: 'rgba(231, 76, 60, 0.1)',
-          borderWidth: 3,
-          fill: true,
-          tension: 0.4,
-          pointRadius: 4,
-          pointBackgroundColor: '#e74c3c',
-          pointBorderColor: '#fff',
-          pointBorderWidth: 2
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: {
-          duration: 0
-        },
-        scales: {
-          x: {
-            display: true,
-            title: {
-              display: true,
-              text: 'Time (10 seconds)'
-            },
-            grid: {
-              color: 'rgba(0,0,0,0.2)',
-              lineWidth: 1
-            },
-            ticks: {
-              maxTicksLimit: 11, // 0-10 seconds
-              callback: function(_value, index) {
-                return index + 's';
-              }
-            }
-          },
-          y: {
-            beginAtZero: true,
-            max: 200,
-            min: 40,
-            title: {
-              display: true,
-              text: 'Heart Rate (BPM)'
-            },
-            grid: {
-              color: 'rgba(0,0,0,0.1)',
-              lineWidth: 1
-            },
-            ticks: {
-              stepSize: 20
-            }
-          }
-        },
-        plugins: {
-          legend: {
-            display: false
           }
         }
       }
@@ -864,9 +793,6 @@ class ECGMonitor {
 
     // Check for abnormalities and trigger alerts
     this.checkForAbnormalities(bpm, timestamp);
-
-    // Update BPM chart
-    this.updateBPMChart();
   }
 
   updateBPMStats() {
@@ -1341,38 +1267,7 @@ class ECGMonitor {
   }
 
 
-  updateBPMChart() {
-    if (!this.bpmChart || this.bpmData.length === 0) return;
 
-    // Create 10-second time scale labels
-    const labels = [];
-    const now = Date.now();
-
-    // Generate labels for 10 seconds (0s to 10s)
-    for (let i = 0; i <= 100; i++) {
-      labels.push((i / 10).toFixed(1) + 's');
-    }
-
-    // Prepare data array with proper time alignment
-    const chartData = new Array(101).fill(null);
-
-    // Map BPM data to time positions
-    this.bpmData.forEach((bpm, index) => {
-      if (index < this.bpmTimestamps.length) {
-        const timestamp = this.bpmTimestamps[index];
-        const timeAgo = (now - timestamp) / 100; // Convert to deciseconds
-        const position = Math.max(0, Math.min(100, Math.round(100 - timeAgo)));
-
-        if (position >= 0 && position <= 100) {
-          chartData[position] = bpm;
-        }
-      }
-    });
-
-    this.bpmChart.data.labels = labels;
-    this.bpmChart.data.datasets[0].data = chartData;
-    this.bpmChart.update('none');
-  }
 
   updateDataDisplay(ecgValue, timestamp) {
     // Update ECG value with animation
@@ -1453,11 +1348,7 @@ class ECGMonitor {
       this.ecgChart.update();
     }
 
-    if (this.bpmChart) {
-      this.bpmChart.data.labels = [];
-      this.bpmChart.data.datasets[0].data = [];
-      this.bpmChart.update();
-    }
+
 
     if (this.beatChart) {
       this.beatChart.data.labels = [];
@@ -2559,7 +2450,6 @@ class ECGMonitor {
 
     // Capture ECG waveform screenshot
     const ecgScreenshot = await this.captureECGWaveform();
-    const bpmScreenshot = await this.captureBPMChart();
 
     return `
       <div class="realtime-report">
@@ -2641,10 +2531,6 @@ class ECGMonitor {
             <h5>ECG Signal - Last 10 Seconds</h5>
             ${ecgScreenshot}
           </div>
-          <div class="waveform-screenshot">
-            <h5>Heart Rate Trend - Last 10 Seconds</h5>
-            ${bpmScreenshot}
-          </div>
         </div>
 
         <div class="morphology-analysis">
@@ -2703,21 +2589,7 @@ class ECGMonitor {
     return '<p>ECG waveform capture not available</p>';
   }
 
-  async captureBPMChart() {
-    try {
-      const canvas = document.getElementById('bpmChart');
-      if (canvas && window.html2canvas) {
-        const screenshot = await html2canvas(canvas.parentElement, {
-          backgroundColor: '#ffffff',
-          scale: 2
-        });
-        return `<img src="${screenshot.toDataURL()}" alt="Heart Rate Trend" />`;
-      }
-    } catch (error) {
-      console.error('Error capturing BPM chart:', error);
-    }
-    return '<p>Heart rate chart capture not available</p>';
-  }
+
 
   getIntervalStatus(type, value) {
     if (!value) return 'Not measured';
